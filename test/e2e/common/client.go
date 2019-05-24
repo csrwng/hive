@@ -6,10 +6,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
-	hiveapis "github.com/openshift/hive/pkg/apis"
 	apiextv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	kclient "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
+
+	hiveapis "github.com/openshift/hive/pkg/apis"
 )
 
 func init() {
@@ -47,4 +49,12 @@ func MustGetKubernetesClient() kclient.Interface {
 		log.Fatalf("Error obtaining kubernetes client: %v", err)
 	}
 	return c
+}
+
+func MustGetConfig() *rest.Config {
+	config, err := config.GetConfig()
+	if err != nil {
+		log.Fatalf("Error obtaining client config: %v", err)
+	}
+	return config
 }

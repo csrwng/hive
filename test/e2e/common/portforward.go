@@ -14,6 +14,8 @@ import (
 type PortForwarder struct {
 	Namespace string
 	Name      string
+	Stdout    io.Writer
+	Stderr    io.Writer
 	Client    kubernetes.Interface
 	Config    *restclient.Config
 }
@@ -24,7 +26,7 @@ func (f *PortForwarder) ForwardPorts(ports []string, stopChan <-chan struct{}) e
 	req := f.Client.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Namespace(f.Namespace).
-		Name(f.PodName).
+		Name(f.Name).
 		SubResource("portforward")
 
 	transport, upgrader, err := spdy.RoundTripperFor(f.Config)
@@ -32,7 +34,7 @@ func (f *PortForwarder) ForwardPorts(ports []string, stopChan <-chan struct{}) e
 
 	// TODO: Make os.Stdout/Stderr configurable
 	readyChan := make(chan struct{})
-	fw, err := portforward.New(dialer, ports, stopChan, readyChan, f.Out, f.ErrOut)
+	fw, err := portforward.New(dialer, ports, stopChan, readyChan, f.Stdout, f.Stderr)
 	if err != nil {
 		return err
 	}
