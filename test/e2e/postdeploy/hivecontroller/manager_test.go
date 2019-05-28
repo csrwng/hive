@@ -1,12 +1,8 @@
 package hivecontroller
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
-	"math/rand"
-	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -16,8 +12,6 @@ import (
 
 	// "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/openshift/hive/test/e2e/common"
 )
@@ -67,17 +61,6 @@ func TestHiveControllersMetrics(t *testing.T) {
 		t.Errorf("Failed to get hive controllers service: %v", err)
 		return
 	}
-	pods := &corev1.PodList{}
-	opts := client.MatchingLabels(service.Spec.Selector).InNamespace(hiveNamespace)
-	err = c.List(context.TODO(), opts, pods)
-	if err != nil {
-		t.Errorf("cannot fetch list of controller pods: %v", err)
-		return
-	}
-	if len(pods.Items) == 0 {
-		t.Errorf("no pods were found matching the service selector")
-		return
-	}
 
 	metricsPort := 0
 	for _, port := range service.Spec.Ports {
@@ -87,37 +70,16 @@ func TestHiveControllersMetrics(t *testing.T) {
 	}
 	if metricsPort == 0 {
 		t.Errorf("cannot find metrics port in hive controllers service")
-	}
-	localPort := 20000 + rand.Intn(20000)
-	portSpec := fmt.Sprintf("%d:%d", localPort, metricsPort)
-
-	forwardOutput := &bytes.Buffer{}
-
-	portForwarder := common.PortForwarder{
-		Name:      pods.Items[0].Name,
-		Namespace: pods.Items[0].Namespace,
-		Stdout:    forwardOutput,
-		Stderr:    forwardOutput,
-		Client:    common.MustGetKubernetesClient(),
-		Config:    common.MustGetConfig(),
+		return
 	}
 
-	stopChan := make(chan struct{})
-	err = portForwarder.ForwardPorts([]string{portSpec}, stopChan)
+	kubeClient := common.MustGetKubernetesClient()
+
+	// Query the metrics port in the hive-controllers service using the apiserver proxy
+	body, err := kubeClient.CoreV1().RESTClient().Get().Namespace(hiveNamespace).Name(fmt.Sprintf("%s:%d", hiveControllersService, metricsPort)).Resource("services").SubResource("proxy").Suffix("metrics").DoRaw()
 	if err != nil {
-		t.Errorf("cannot start port forwarding")
-	}
-	defer t.Logf("forward output:\n%s\n", forwardOutput.String())
-	defer func() { stopChan <- struct{}{} }()
-
-	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/metrics", localPort))
-	if err != nil {
-		t.Errorf("unable to fetch metrics endpoint: %v", err)
-	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		t.Errorf("cannot read metrics endpoint response: %v", err)
+		t.Errorf("failed to reach metrics endpoint: %v", err)
+		return
 	}
 	if !strings.Contains(string(body), "hive_cluster_deployment_install_job_delay_seconds_bucket") {
 		t.Errorf("metrics response does not contain expected metric name")
