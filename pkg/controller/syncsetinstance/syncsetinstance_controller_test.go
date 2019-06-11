@@ -19,11 +19,12 @@ package syncsetinstance
 import (
 	"context"
 	"crypto/md5"
+	"encoding/json"
 	"fmt"
-	"strconv"
+	// "strconv"
 	"strings"
 	"testing"
-	"time"
+	// "time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -42,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/openshift/hive/pkg/apis"
+	"github.com/openshift/hive/pkg/apis/helpers"
 	hivev1 "github.com/openshift/hive/pkg/apis/hive/v1alpha1"
 	"github.com/openshift/hive/pkg/resource"
 )
@@ -63,453 +65,452 @@ func TestSyncSetReconcile(t *testing.T) {
 	tests := []struct {
 		name              string
 		clusterDeployment *hivev1.ClusterDeployment
-		syncSets          []*hivev1.SyncSet
-		selectorSyncSets  []*hivev1.SelectorSyncSet
-		validate          func(*testing.T, *hivev1.ClusterDeployment)
+		syncSet           *hivev1.SyncSet
+		selectorSyncSet   *hivev1.SelectorSyncSet
+		validate          func(*testing.T, *hivev1.SyncSetInstance)
 		expectDeleted     []deletedItemInfo
 		expectErr         bool
 	}{
 		{
 			name:              "Create single resource successfully",
 			clusterDeployment: testClusterDeployment(nil, nil),
-			syncSets: []*hivev1.SyncSet{
-				testSyncSetWithResources("ss1", testCM("cm1", "foo", "bar")),
-			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{
-					successfulResourceStatus("ss1", []runtime.Object{testCM("cm1", "foo", "bar")}, hivev1.UpsertResourceApplyMode),
-				})
+			syncSet:           testSyncSetWithResources("ss1", testCM("cm1", "foo", "bar")),
+			validate: func(t *testing.T, ssi *hivev1.SyncSetInstance) {
+				validateSyncSetInstanceStatus(t, ssi.Status,
+					successfulResourceStatus("ss1", []runtime.Object{testCM("cm1", "foo", "bar")}))
 			},
 		},
 		{
 			name:              "Create multiple resources successfully",
 			clusterDeployment: testClusterDeployment(nil, nil),
-			syncSets: []*hivev1.SyncSet{
-				testSyncSetWithResources("foo", testCMs("bar", 5)...),
-			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{
-					successfulResourceStatus("foo", testCMs("bar", 5), hivev1.UpsertResourceApplyMode),
-				})
+			syncSet:           testSyncSetWithResources("foo", testCMs("bar", 5)...),
+			validate: func(t *testing.T, ssi *hivev1.SyncSetInstance) {
+				validateSyncSetInstanceStatus(t, ssi.Status,
+					successfulResourceStatus("foo", testCMs("bar", 5)))
 			},
 		},
-		{
-			name:              "Create resources from multiple syncsets",
-			clusterDeployment: testClusterDeployment(nil, nil),
-			syncSets: []*hivev1.SyncSet{
-				testSyncSetWithResources("foo1", testCMs("foo1", 4)...),
-				testSyncSetWithResources("foo2", testCMs("foo2", 3)...),
+		/*
+			{
+				name:              "Create resources from multiple syncsets",
+				clusterDeployment: testClusterDeployment(nil, nil),
+				syncSets: []*hivev1.SyncSet{
+					testSyncSetWithResources("foo1", testCMs("foo1", 4)...),
+					testSyncSetWithResources("foo2", testCMs("foo2", 3)...),
+				},
+				validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
+					validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{
+						successfulResourceStatus("foo1", testCMs("foo1", 4), hivev1.UpsertResourceApplyMode),
+						successfulResourceStatus("foo2", testCMs("foo2", 3), hivev1.UpsertResourceApplyMode),
+					})
+				},
 			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{
-					successfulResourceStatus("foo1", testCMs("foo1", 4), hivev1.UpsertResourceApplyMode),
-					successfulResourceStatus("foo2", testCMs("foo2", 3), hivev1.UpsertResourceApplyMode),
-				})
+			{
+				name: "Update single resource",
+				clusterDeployment: testClusterDeployment([]hivev1.SyncSetObjectStatus{
+					successfulResourceStatus("ss1", []runtime.Object{testCM("cm1", "key1", "value1")}, hivev1.UpsertResourceApplyMode),
+				}, nil),
+				syncSets: []*hivev1.SyncSet{
+					testSyncSetWithResources("ss1", testCM("cm1", "key1", "value***changed")),
+				},
+				validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
+					validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{
+						successfulResourceStatus("ss1", []runtime.Object{testCM("cm1", "key1", "value***changed")}, hivev1.UpsertResourceApplyMode),
+					})
+				},
 			},
-		},
-		{
-			name: "Update single resource",
-			clusterDeployment: testClusterDeployment([]hivev1.SyncSetObjectStatus{
-				successfulResourceStatus("ss1", []runtime.Object{testCM("cm1", "key1", "value1")}, hivev1.UpsertResourceApplyMode),
-			}, nil),
-			syncSets: []*hivev1.SyncSet{
-				testSyncSetWithResources("ss1", testCM("cm1", "key1", "value***changed")),
-			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{
-					successfulResourceStatus("ss1", []runtime.Object{testCM("cm1", "key1", "value***changed")}, hivev1.UpsertResourceApplyMode),
-				})
-			},
-		},
-		{
-			name: "Update only resources that have changed",
-			clusterDeployment: func() *hivev1.ClusterDeployment {
-				fiveMinutesAgo := time.Unix(metav1.NewTime(time.Now().Add(-5*time.Minute)).Unix(), 0)
-				cd := testClusterDeployment([]hivev1.SyncSetObjectStatus{
-					successfulResourceStatusWithTime("aaa",
-						[]runtime.Object{
-							testCM("cm1", "key1", "value1"),
-							testCM("cm2", "key2", "value2"),
-							testCM("cm3", "key3", "value3"),
-						},
-						hivev1.UpsertResourceApplyMode,
-						metav1.NewTime(fiveMinutesAgo)),
-				}, nil)
-				// let's store the time as an annotation for later verification
-				cd.Annotations = map[string]string{
-					"five-minutes-ago": fmt.Sprintf("%d", fiveMinutesAgo.Unix()),
-				}
-				return cd
-			}(),
-			syncSets: []*hivev1.SyncSet{
-				testSyncSetWithResources("aaa",
-					testCM("cm1", "key1", "value1"),
-					testCM("cm2", "key2", "value***changed"),
-					testCM("cm3", "key3", "value3"),
-				),
-			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{
-					successfulResourceStatus("aaa",
-						[]runtime.Object{
-							testCM("cm1", "key1", "value1"),
-							testCM("cm2", "key2", "value***changed"),
-							testCM("cm3", "key3", "value3"),
-						},
-						hivev1.UpsertResourceApplyMode),
-				})
-				unixFiveMinutesAgo, _ := strconv.ParseInt(cd.Annotations["five-minutes-ago"], 0, 64)
-				unchanged := []hivev1.SyncStatus{
-					cd.Status.SyncSetStatus[0].Resources[0],
-					cd.Status.SyncSetStatus[0].Resources[2],
-				}
-				for _, ss := range unchanged {
-					if ss.Conditions[0].LastProbeTime.Time.Unix() != unixFiveMinutesAgo {
-						t.Errorf("unexpected condition last probe time for resource %s/%s. Got: %v, Expected: %v", ss.Namespace, ss.Name, ss.Conditions[0].LastProbeTime.Time, time.Unix(unixFiveMinutesAgo, 0))
+			{
+				name: "Update only resources that have changed",
+				clusterDeployment: func() *hivev1.ClusterDeployment {
+					fiveMinutesAgo := time.Unix(metav1.NewTime(time.Now().Add(-5*time.Minute)).Unix(), 0)
+					cd := testClusterDeployment([]hivev1.SyncSetObjectStatus{
+						successfulResourceStatusWithTime("aaa",
+							[]runtime.Object{
+								testCM("cm1", "key1", "value1"),
+								testCM("cm2", "key2", "value2"),
+								testCM("cm3", "key3", "value3"),
+							},
+							hivev1.UpsertResourceApplyMode,
+							metav1.NewTime(fiveMinutesAgo)),
+					}, nil)
+					// let's store the time as an annotation for later verification
+					cd.Annotations = map[string]string{
+						"five-minutes-ago": fmt.Sprintf("%d", fiveMinutesAgo.Unix()),
 					}
-					if ss.Conditions[0].LastTransitionTime.Time.Unix() != unixFiveMinutesAgo {
-						t.Errorf("unexpected condition last transition time for resource %s/%s. Got: %v, Expected: %v", ss.Namespace, ss.Name, ss.Conditions[0].LastTransitionTime.Time, time.Unix(unixFiveMinutesAgo, 0))
-					}
-				}
-				changed := cd.Status.SyncSetStatus[0].Resources[1]
-				if changed.Conditions[0].LastProbeTime.Time.Unix() <= unixFiveMinutesAgo {
-					t.Errorf("unexpected condition last probe time for resource %s/%s. Got: %v, Expected a more recent time", changed.Namespace, changed.Name, changed.Conditions[0].LastProbeTime.Time)
-				}
-				// The last transition time should not have changed because we went from successful to successful
-				if changed.Conditions[0].LastTransitionTime.Time.Unix() != unixFiveMinutesAgo {
-					t.Errorf("unexpected condition last transition time for resource %s/%s. Got: %v, Expected: %v", changed.Namespace, changed.Name, changed.Conditions[0].LastTransitionTime.Time, time.Unix(unixFiveMinutesAgo, 0))
-				}
-			},
-		},
-		{
-			name:              "Check for failed info call, set condition",
-			clusterDeployment: testClusterDeployment(nil, nil),
-			syncSets: []*hivev1.SyncSet{
-				testSyncSetWithResources("foo",
-					testCM("cm1", "key1", "value1"),
-					testCM("info-error", "key2", "value2"),
-				),
-			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				validateUnknownObjectCondition(t, cd.Status.SyncSetStatus[0])
-			},
-			expectErr: true,
-		},
-		{
-			name:              "Check for failed info call, set condition and process other syncsets",
-			clusterDeployment: testClusterDeployment(nil, nil),
-			syncSets: []*hivev1.SyncSet{
-				testSyncSetWithResources("foo", testCM("info-error", "key1", "value1")),
-				testSyncSetWithResources("bar", testCM("valid", "key2", "value2")),
-			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				for _, ss := range cd.Status.SyncSetStatus {
-					if ss.Name == "foo" {
-						validateUnknownObjectCondition(t, ss)
-					} else if ss.Name == "bar" {
-						validateSyncSetStatus(t, ss,
-							successfulResourceStatus("bar",
-								[]runtime.Object{testCM("valid", "key2", "value2")},
-								hivev1.UpsertResourceApplyMode))
-					} else {
-						t.Errorf("unexpected syncset status: %s", ss.Name)
-					}
-				}
-			},
-			expectErr: true,
-		},
-		{
-			name:              "Stop applying resources when error occurs",
-			clusterDeployment: testClusterDeployment(nil, nil),
-			syncSets: []*hivev1.SyncSet{
-				testSyncSetWithResources("foo",
-					testCM("cm1", "key1", "value1"),
-					testCM("cm2", "key2", "value2"),
-					testCM("apply-error", "key3", "value3"),
-					testCM("cm4", "key4", "value4"),
-				),
-			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				status := successfulResourceStatus("foo",
-					[]runtime.Object{
+					return cd
+				}(),
+				syncSets: []*hivev1.SyncSet{
+					testSyncSetWithResources("aaa",
 						testCM("cm1", "key1", "value1"),
-						testCM("cm2", "key2", "value2"),
-					},
-					hivev1.UpsertResourceApplyMode)
-				status.Resources = append(status.Resources, failedResourceStatus("foo", []runtime.Object{
-					testCM("apply-error", "key3", "value3"),
-				}).Resources...)
-				validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{status})
-			},
-			expectErr: true,
-		},
-		{
-			name:              "selectorsyncset: apply single resource",
-			clusterDeployment: testClusterDeployment(nil, nil),
-			selectorSyncSets: []*hivev1.SelectorSyncSet{
-				testMatchingSelectorSyncSetWithResources("foo",
-					testCM("cm1", "key1", "value1"),
-				),
-			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				validateSyncSetObjectStatus(t, cd.Status.SelectorSyncSetStatus, []hivev1.SyncSetObjectStatus{
-					successfulResourceStatus("foo",
-						[]runtime.Object{
-							testCM("cm1", "key1", "value1"),
-						},
-						hivev1.UpsertResourceApplyMode),
-				})
-			},
-		},
-		{
-			name:              "selectorsyncset: apply resources for only matching",
-			clusterDeployment: testClusterDeployment(nil, nil),
-			selectorSyncSets: []*hivev1.SelectorSyncSet{
-				testMatchingSelectorSyncSetWithResources("foo",
-					testCM("cm1", "key1", "value1"),
-				),
-				testNonMatchingSelectorSyncSetWithResources("bar",
-					testCM("cm2", "key2", "value2"),
-				),
-			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				validateSyncSetObjectStatus(t, cd.Status.SelectorSyncSetStatus, []hivev1.SyncSetObjectStatus{
-					successfulResourceStatus("foo",
-						[]runtime.Object{
-							testCM("cm1", "key1", "value1"),
-						},
-						hivev1.UpsertResourceApplyMode),
-				})
-			},
-		},
-		{
-			name:              "Apply single patch successfully",
-			clusterDeployment: testClusterDeployment(nil, nil),
-			syncSets: []*hivev1.SyncSet{
-				testSyncSetWithPatches("ss1", testSyncObjectPatch("foo", "bar", "baz", "v1", "AlwaysApply", "value1")),
-			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{
-					successfulPatchStatus("ss1", []hivev1.SyncObjectPatch{testSyncObjectPatch("foo", "bar", "baz", "v1", "AlwaysApply", "value1")}),
-				})
-			},
-		},
-		{
-			name:              "Apply multiple patches successfully",
-			clusterDeployment: testClusterDeployment(nil, nil),
-			syncSets: []*hivev1.SyncSet{
-				testSyncSetWithPatches("ss1",
-					testSyncObjectPatch("foo", "bar", "baz", "v1", "AlwaysApply", "value1"),
-					testSyncObjectPatch("chicken", "potato", "stew", "v1", "AlwaysApply", "value2"),
-				),
-			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{
-					successfulPatchStatus("ss1",
-						[]hivev1.SyncObjectPatch{
-							testSyncObjectPatch("foo", "bar", "baz", "v1", "AlwaysApply", "value1"),
-							testSyncObjectPatch("chicken", "potato", "stew", "v1", "AlwaysApply", "value2"),
-						},
+						testCM("cm2", "key2", "value***changed"),
+						testCM("cm3", "key3", "value3"),
 					),
-				})
+				},
+				validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
+					validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{
+						successfulResourceStatus("aaa",
+							[]runtime.Object{
+								testCM("cm1", "key1", "value1"),
+								testCM("cm2", "key2", "value***changed"),
+								testCM("cm3", "key3", "value3"),
+							},
+							hivev1.UpsertResourceApplyMode),
+					})
+					unixFiveMinutesAgo, _ := strconv.ParseInt(cd.Annotations["five-minutes-ago"], 0, 64)
+					unchanged := []hivev1.SyncStatus{
+						cd.Status.SyncSetStatus[0].Resources[0],
+						cd.Status.SyncSetStatus[0].Resources[2],
+					}
+					for _, ss := range unchanged {
+						if ss.Conditions[0].LastProbeTime.Time.Unix() != unixFiveMinutesAgo {
+							t.Errorf("unexpected condition last probe time for resource %s/%s. Got: %v, Expected: %v", ss.Namespace, ss.Name, ss.Conditions[0].LastProbeTime.Time, time.Unix(unixFiveMinutesAgo, 0))
+						}
+						if ss.Conditions[0].LastTransitionTime.Time.Unix() != unixFiveMinutesAgo {
+							t.Errorf("unexpected condition last transition time for resource %s/%s. Got: %v, Expected: %v", ss.Namespace, ss.Name, ss.Conditions[0].LastTransitionTime.Time, time.Unix(unixFiveMinutesAgo, 0))
+						}
+					}
+					changed := cd.Status.SyncSetStatus[0].Resources[1]
+					if changed.Conditions[0].LastProbeTime.Time.Unix() <= unixFiveMinutesAgo {
+						t.Errorf("unexpected condition last probe time for resource %s/%s. Got: %v, Expected a more recent time", changed.Namespace, changed.Name, changed.Conditions[0].LastProbeTime.Time)
+					}
+					// The last transition time should not have changed because we went from successful to successful
+					if changed.Conditions[0].LastTransitionTime.Time.Unix() != unixFiveMinutesAgo {
+						t.Errorf("unexpected condition last transition time for resource %s/%s. Got: %v, Expected: %v", changed.Namespace, changed.Name, changed.Conditions[0].LastTransitionTime.Time, time.Unix(unixFiveMinutesAgo, 0))
+					}
+				},
 			},
-		},
-		{
-			name: "Reapply single patch",
-			clusterDeployment: testClusterDeployment([]hivev1.SyncSetObjectStatus{
-				successfulPatchStatus("ss1", []hivev1.SyncObjectPatch{
-					testSyncObjectPatch("foo", "bar", "baz", "v1", "ApplyOnce", "value1"),
-				}),
-			}, nil),
-			syncSets: []*hivev1.SyncSet{
-				testSyncSetWithPatches("ss1",
-					testSyncObjectPatch("foo", "bar", "baz", "v1", "ApplyOnce", "value1***changed"),
-				),
-			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{
-					successfulPatchStatus("ss1",
-						[]hivev1.SyncObjectPatch{
-							testSyncObjectPatch("foo", "bar", "baz", "v1", "ApplyOnce", "value1***changed"),
-						},
+			{
+				name:              "Check for failed info call, set condition",
+				clusterDeployment: testClusterDeployment(nil, nil),
+				syncSets: []*hivev1.SyncSet{
+					testSyncSetWithResources("foo",
+						testCM("cm1", "key1", "value1"),
+						testCM("info-error", "key2", "value2"),
 					),
-				})
+				},
+				validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
+					validateUnknownObjectCondition(t, cd.Status.SyncSetStatus[0])
+				},
+				expectErr: true,
 			},
-		},
-		{
-			name:              "Apply patches from multiple syncsets",
-			clusterDeployment: testClusterDeployment(nil, nil),
-			syncSets: []*hivev1.SyncSet{
-				testSyncSetWithPatches("ss1", testSyncObjectPatch("foo", "bar", "baz", "v1", "AlwaysApply", "value1")),
-				testSyncSetWithPatches("ss2", testSyncObjectPatch("chicken", "potato", "stew", "v1", "AlwaysApply", "value1")),
+			{
+				name:              "Check for failed info call, set condition and process other syncsets",
+				clusterDeployment: testClusterDeployment(nil, nil),
+				syncSets: []*hivev1.SyncSet{
+					testSyncSetWithResources("foo", testCM("info-error", "key1", "value1")),
+					testSyncSetWithResources("bar", testCM("valid", "key2", "value2")),
+				},
+				validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
+					for _, ss := range cd.Status.SyncSetStatus {
+						if ss.Name == "foo" {
+							validateUnknownObjectCondition(t, ss)
+						} else if ss.Name == "bar" {
+							validateSyncSetStatus(t, ss,
+								successfulResourceStatus("bar",
+									[]runtime.Object{testCM("valid", "key2", "value2")},
+									hivev1.UpsertResourceApplyMode))
+						} else {
+							t.Errorf("unexpected syncset status: %s", ss.Name)
+						}
+					}
+				},
+				expectErr: true,
 			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{
-					successfulPatchStatus("ss1", []hivev1.SyncObjectPatch{testSyncObjectPatch("foo", "bar", "baz", "v1", "AlwaysApply", "value1")}),
-					successfulPatchStatus("ss2", []hivev1.SyncObjectPatch{testSyncObjectPatch("chicken", "potato", "stew", "v1", "AlwaysApply", "value1")}),
-				})
-			},
-		},
-		{
-			name:              "Stop applying patches when error occurs",
-			clusterDeployment: testClusterDeployment(nil, nil),
-			syncSets: []*hivev1.SyncSet{
-				testSyncSetWithPatches("ss1",
-					testSyncObjectPatch("thing1", "bar", "baz", "v1", "AlwaysApply", "value1"),
-					testSyncObjectPatch("thing2", "bar", "baz", "v1", "AlwaysApply", "value1"),
-					testSyncObjectPatch("thing3", "bar", "baz", "v1", "AlwaysApply", "patch-error"),
-					testSyncObjectPatch("thing4", "bar", "baz", "v1", "AlwaysApply", "value1"),
-				),
-			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				status := successfulPatchStatus("ss1", []hivev1.SyncObjectPatch{
-					testSyncObjectPatch("thing1", "bar", "baz", "v1", "AlwaysApply", "value1"),
-					testSyncObjectPatch("thing2", "bar", "baz", "v1", "AlwaysApply", "value1"),
-				})
-				status.Patches = append(status.Patches, failedPatchStatus("ss1", []hivev1.SyncObjectPatch{
-					testSyncObjectPatch("thing3", "bar", "baz", "v1", "AlwaysApply", "patch-error"),
-				}).Patches...)
-				validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{status})
-			},
-			expectErr: true,
-		},
-		{
-			name:              "selectorsyncset: apply single resource",
-			clusterDeployment: testClusterDeployment(nil, nil),
-			selectorSyncSets: []*hivev1.SelectorSyncSet{
-				testMatchingSelectorSyncSetWithPatches("ss1",
-					testSyncObjectPatch("foo", "bar", "baz", "v1", "ApplyOnce", "value1"),
-				),
-			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				validateSyncSetObjectStatus(t, cd.Status.SelectorSyncSetStatus, []hivev1.SyncSetObjectStatus{
-					successfulPatchStatus("ss1", []hivev1.SyncObjectPatch{
-						testSyncObjectPatch("foo", "bar", "baz", "v1", "ApplyOnce", "value1"),
-					}),
-				})
-			},
-		},
-		{
-			name:              "selectorsyncset: apply patches for only matching",
-			clusterDeployment: testClusterDeployment(nil, nil),
-			selectorSyncSets: []*hivev1.SelectorSyncSet{
-				testMatchingSelectorSyncSetWithPatches("ss1",
-					testSyncObjectPatch("foo1", "bar1", "baz1", "v1", "ApplyOnce", "value1"),
-				),
-				testNonMatchingSelectorSyncSetWithPatches("ss2",
-					testSyncObjectPatch("foo2", "bar2", "baz2", "v1", "ApplyOnce", "value2"),
-				),
-			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				validateSyncSetObjectStatus(t, cd.Status.SelectorSyncSetStatus, []hivev1.SyncSetObjectStatus{
-					successfulPatchStatus("ss1", []hivev1.SyncObjectPatch{
-						testSyncObjectPatch("foo1", "bar1", "baz1", "v1", "ApplyOnce", "value1"),
-					}),
-				})
-			},
-		},
-		{
-			name:              "No patches applied when resource error occurs",
-			clusterDeployment: testClusterDeployment(nil, nil),
-			syncSets: []*hivev1.SyncSet{
-				testSyncSet("ss1",
-					[]runtime.Object{
+			{
+				name:              "Stop applying resources when error occurs",
+				clusterDeployment: testClusterDeployment(nil, nil),
+				syncSets: []*hivev1.SyncSet{
+					testSyncSetWithResources("foo",
 						testCM("cm1", "key1", "value1"),
 						testCM("cm2", "key2", "value2"),
 						testCM("apply-error", "key3", "value3"),
 						testCM("cm4", "key4", "value4"),
-					},
-					[]hivev1.SyncObjectPatch{
+					),
+				},
+				validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
+					status := successfulResourceStatus("foo",
+						[]runtime.Object{
+							testCM("cm1", "key1", "value1"),
+							testCM("cm2", "key2", "value2"),
+						},
+						hivev1.UpsertResourceApplyMode)
+					status.Resources = append(status.Resources, failedResourceStatus("foo", []runtime.Object{
+						testCM("apply-error", "key3", "value3"),
+					}).Resources...)
+					validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{status})
+				},
+				expectErr: true,
+			},
+			{
+				name:              "selectorsyncset: apply single resource",
+				clusterDeployment: testClusterDeployment(nil, nil),
+				selectorSyncSets: []*hivev1.SelectorSyncSet{
+					testMatchingSelectorSyncSetWithResources("foo",
+						testCM("cm1", "key1", "value1"),
+					),
+				},
+				validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
+					validateSyncSetObjectStatus(t, cd.Status.SelectorSyncSetStatus, []hivev1.SyncSetObjectStatus{
+						successfulResourceStatus("foo",
+							[]runtime.Object{
+								testCM("cm1", "key1", "value1"),
+							},
+							hivev1.UpsertResourceApplyMode),
+					})
+				},
+			},
+			{
+				name:              "selectorsyncset: apply resources for only matching",
+				clusterDeployment: testClusterDeployment(nil, nil),
+				selectorSyncSets: []*hivev1.SelectorSyncSet{
+					testMatchingSelectorSyncSetWithResources("foo",
+						testCM("cm1", "key1", "value1"),
+					),
+					testNonMatchingSelectorSyncSetWithResources("bar",
+						testCM("cm2", "key2", "value2"),
+					),
+				},
+				validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
+					validateSyncSetObjectStatus(t, cd.Status.SelectorSyncSetStatus, []hivev1.SyncSetObjectStatus{
+						successfulResourceStatus("foo",
+							[]runtime.Object{
+								testCM("cm1", "key1", "value1"),
+							},
+							hivev1.UpsertResourceApplyMode),
+					})
+				},
+			},
+			{
+				name:              "Apply single patch successfully",
+				clusterDeployment: testClusterDeployment(nil, nil),
+				syncSets: []*hivev1.SyncSet{
+					testSyncSetWithPatches("ss1", testSyncObjectPatch("foo", "bar", "baz", "v1", "AlwaysApply", "value1")),
+				},
+				validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
+					validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{
+						successfulPatchStatus("ss1", []hivev1.SyncObjectPatch{testSyncObjectPatch("foo", "bar", "baz", "v1", "AlwaysApply", "value1")}),
+					})
+				},
+			},
+			{
+				name:              "Apply multiple patches successfully",
+				clusterDeployment: testClusterDeployment(nil, nil),
+				syncSets: []*hivev1.SyncSet{
+					testSyncSetWithPatches("ss1",
+						testSyncObjectPatch("foo", "bar", "baz", "v1", "AlwaysApply", "value1"),
+						testSyncObjectPatch("chicken", "potato", "stew", "v1", "AlwaysApply", "value2"),
+					),
+				},
+				validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
+					validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{
+						successfulPatchStatus("ss1",
+							[]hivev1.SyncObjectPatch{
+								testSyncObjectPatch("foo", "bar", "baz", "v1", "AlwaysApply", "value1"),
+								testSyncObjectPatch("chicken", "potato", "stew", "v1", "AlwaysApply", "value2"),
+							},
+						),
+					})
+				},
+			},
+			{
+				name: "Reapply single patch",
+				clusterDeployment: testClusterDeployment([]hivev1.SyncSetObjectStatus{
+					successfulPatchStatus("ss1", []hivev1.SyncObjectPatch{
+						testSyncObjectPatch("foo", "bar", "baz", "v1", "ApplyOnce", "value1"),
+					}),
+				}, nil),
+				syncSets: []*hivev1.SyncSet{
+					testSyncSetWithPatches("ss1",
+						testSyncObjectPatch("foo", "bar", "baz", "v1", "ApplyOnce", "value1***changed"),
+					),
+				},
+				validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
+					validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{
+						successfulPatchStatus("ss1",
+							[]hivev1.SyncObjectPatch{
+								testSyncObjectPatch("foo", "bar", "baz", "v1", "ApplyOnce", "value1***changed"),
+							},
+						),
+					})
+				},
+			},
+			{
+				name:              "Apply patches from multiple syncsets",
+				clusterDeployment: testClusterDeployment(nil, nil),
+				syncSets: []*hivev1.SyncSet{
+					testSyncSetWithPatches("ss1", testSyncObjectPatch("foo", "bar", "baz", "v1", "AlwaysApply", "value1")),
+					testSyncSetWithPatches("ss2", testSyncObjectPatch("chicken", "potato", "stew", "v1", "AlwaysApply", "value1")),
+				},
+				validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
+					validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{
+						successfulPatchStatus("ss1", []hivev1.SyncObjectPatch{testSyncObjectPatch("foo", "bar", "baz", "v1", "AlwaysApply", "value1")}),
+						successfulPatchStatus("ss2", []hivev1.SyncObjectPatch{testSyncObjectPatch("chicken", "potato", "stew", "v1", "AlwaysApply", "value1")}),
+					})
+				},
+			},
+			{
+				name:              "Stop applying patches when error occurs",
+				clusterDeployment: testClusterDeployment(nil, nil),
+				syncSets: []*hivev1.SyncSet{
+					testSyncSetWithPatches("ss1",
 						testSyncObjectPatch("thing1", "bar", "baz", "v1", "AlwaysApply", "value1"),
-						testSyncObjectPatch("thing2", "bar", "baz", "v1", "AlwaysApply", "value2"),
-					},
-				),
+						testSyncObjectPatch("thing2", "bar", "baz", "v1", "AlwaysApply", "value1"),
+						testSyncObjectPatch("thing3", "bar", "baz", "v1", "AlwaysApply", "patch-error"),
+						testSyncObjectPatch("thing4", "bar", "baz", "v1", "AlwaysApply", "value1"),
+					),
+				},
+				validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
+					status := successfulPatchStatus("ss1", []hivev1.SyncObjectPatch{
+						testSyncObjectPatch("thing1", "bar", "baz", "v1", "AlwaysApply", "value1"),
+						testSyncObjectPatch("thing2", "bar", "baz", "v1", "AlwaysApply", "value1"),
+					})
+					status.Patches = append(status.Patches, failedPatchStatus("ss1", []hivev1.SyncObjectPatch{
+						testSyncObjectPatch("thing3", "bar", "baz", "v1", "AlwaysApply", "patch-error"),
+					}).Patches...)
+					validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{status})
+				},
+				expectErr: true,
 			},
-			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
-				status := successfulResourceStatus("ss1",
-					[]runtime.Object{
-						testCM("cm1", "key1", "value1"),
-						testCM("cm2", "key2", "value2"),
-					},
-					hivev1.UpsertResourceApplyMode)
-				status.Resources = append(status.Resources, failedResourceStatus("ss1", []runtime.Object{
-					testCM("apply-error", "key3", "value3"),
-				}).Resources...)
-				validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{status})
+			{
+				name:              "selectorsyncset: apply single resource",
+				clusterDeployment: testClusterDeployment(nil, nil),
+				selectorSyncSets: []*hivev1.SelectorSyncSet{
+					testMatchingSelectorSyncSetWithPatches("ss1",
+						testSyncObjectPatch("foo", "bar", "baz", "v1", "ApplyOnce", "value1"),
+					),
+				},
+				validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
+					validateSyncSetObjectStatus(t, cd.Status.SelectorSyncSetStatus, []hivev1.SyncSetObjectStatus{
+						successfulPatchStatus("ss1", []hivev1.SyncObjectPatch{
+							testSyncObjectPatch("foo", "bar", "baz", "v1", "ApplyOnce", "value1"),
+						}),
+					})
+				},
 			},
-			expectErr: true,
-		},
-		{
-			name: "resource sync mode, remove resources",
-			clusterDeployment: testClusterDeployment([]hivev1.SyncSetObjectStatus{
-				successfulResourceStatus("aaa",
-					[]runtime.Object{
-						testCM("cm1", "key1", "value1"),
-						testCM("cm2", "key2", "value2"),
-						testCM("cm3", "key3", "value3"),
-						testCM("cm4", "key4", "value4"),
-					},
-					hivev1.SyncResourceApplyMode),
-			}, nil),
-			syncSets: []*hivev1.SyncSet{
-				func() *hivev1.SyncSet {
-					ss := testSyncSetWithResources("aaa",
-						testCM("cm1", "key1", "value1"),
-						testCM("cm3", "key3", "value3"),
-					)
-					ss.Spec.ResourceApplyMode = hivev1.SyncResourceApplyMode
-					return ss
-				}(),
+			{
+				name:              "selectorsyncset: apply patches for only matching",
+				clusterDeployment: testClusterDeployment(nil, nil),
+				selectorSyncSets: []*hivev1.SelectorSyncSet{
+					testMatchingSelectorSyncSetWithPatches("ss1",
+						testSyncObjectPatch("foo1", "bar1", "baz1", "v1", "ApplyOnce", "value1"),
+					),
+					testNonMatchingSelectorSyncSetWithPatches("ss2",
+						testSyncObjectPatch("foo2", "bar2", "baz2", "v1", "ApplyOnce", "value2"),
+					),
+				},
+				validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
+					validateSyncSetObjectStatus(t, cd.Status.SelectorSyncSetStatus, []hivev1.SyncSetObjectStatus{
+						successfulPatchStatus("ss1", []hivev1.SyncObjectPatch{
+							testSyncObjectPatch("foo1", "bar1", "baz1", "v1", "ApplyOnce", "value1"),
+						}),
+					})
+				},
 			},
-			expectDeleted: []deletedItemInfo{
-				deletedCM("cm2"),
-				deletedCM("cm4"),
+			{
+				name:              "No patches applied when resource error occurs",
+				clusterDeployment: testClusterDeployment(nil, nil),
+				syncSets: []*hivev1.SyncSet{
+					testSyncSet("ss1",
+						[]runtime.Object{
+							testCM("cm1", "key1", "value1"),
+							testCM("cm2", "key2", "value2"),
+							testCM("apply-error", "key3", "value3"),
+							testCM("cm4", "key4", "value4"),
+						},
+						[]hivev1.SyncObjectPatch{
+							testSyncObjectPatch("thing1", "bar", "baz", "v1", "AlwaysApply", "value1"),
+							testSyncObjectPatch("thing2", "bar", "baz", "v1", "AlwaysApply", "value2"),
+						},
+					),
+				},
+				validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
+					status := successfulResourceStatus("ss1",
+						[]runtime.Object{
+							testCM("cm1", "key1", "value1"),
+							testCM("cm2", "key2", "value2"),
+						},
+						hivev1.UpsertResourceApplyMode)
+					status.Resources = append(status.Resources, failedResourceStatus("ss1", []runtime.Object{
+						testCM("apply-error", "key3", "value3"),
+					}).Resources...)
+					validateSyncSetObjectStatus(t, cd.Status.SyncSetStatus, []hivev1.SyncSetObjectStatus{status})
+				},
+				expectErr: true,
 			},
-		},
-		{
-			name: "cleanup deleted syncset resources",
-			clusterDeployment: testClusterDeployment([]hivev1.SyncSetObjectStatus{
-				successfulResourceStatus("aaa",
-					[]runtime.Object{
-						testCM("cm1", "key1", "value1"),
-					},
-					hivev1.SyncResourceApplyMode),
-				successfulResourceStatus("bbb",
-					[]runtime.Object{
-						testCM("cm2", "key2", "value2"),
-					},
-					hivev1.SyncResourceApplyMode),
-			}, nil),
-			syncSets: []*hivev1.SyncSet{
-				func() *hivev1.SyncSet {
-					ss := testSyncSetWithResources("aaa",
-						testCM("cm1", "key1", "value1"),
-					)
-					ss.Spec.ResourceApplyMode = hivev1.SyncResourceApplyMode
-					return ss
-				}(),
+			{
+				name: "resource sync mode, remove resources",
+				clusterDeployment: testClusterDeployment([]hivev1.SyncSetObjectStatus{
+					successfulResourceStatus("aaa",
+						[]runtime.Object{
+							testCM("cm1", "key1", "value1"),
+							testCM("cm2", "key2", "value2"),
+							testCM("cm3", "key3", "value3"),
+							testCM("cm4", "key4", "value4"),
+						},
+						hivev1.SyncResourceApplyMode),
+				}, nil),
+				syncSets: []*hivev1.SyncSet{
+					func() *hivev1.SyncSet {
+						ss := testSyncSetWithResources("aaa",
+							testCM("cm1", "key1", "value1"),
+							testCM("cm3", "key3", "value3"),
+						)
+						ss.Spec.ResourceApplyMode = hivev1.SyncResourceApplyMode
+						return ss
+					}(),
+				},
+				expectDeleted: []deletedItemInfo{
+					deletedCM("cm2"),
+					deletedCM("cm4"),
+				},
 			},
-			expectDeleted: []deletedItemInfo{
-				deletedCM("cm2"),
+			{
+				name: "cleanup deleted syncset resources",
+				clusterDeployment: testClusterDeployment([]hivev1.SyncSetObjectStatus{
+					successfulResourceStatus("aaa",
+						[]runtime.Object{
+							testCM("cm1", "key1", "value1"),
+						},
+						hivev1.SyncResourceApplyMode),
+					successfulResourceStatus("bbb",
+						[]runtime.Object{
+							testCM("cm2", "key2", "value2"),
+						},
+						hivev1.SyncResourceApplyMode),
+				}, nil),
+				syncSets: []*hivev1.SyncSet{
+					func() *hivev1.SyncSet {
+						ss := testSyncSetWithResources("aaa",
+							testCM("cm1", "key1", "value1"),
+						)
+						ss.Spec.ResourceApplyMode = hivev1.SyncResourceApplyMode
+						return ss
+					}(),
+				},
+				expectDeleted: []deletedItemInfo{
+					deletedCM("cm2"),
+				},
 			},
-		},
+		*/
 	}
 
 	for _, test := range tests {
 		apis.AddToScheme(scheme.Scheme)
 		t.Run(test.name, func(t *testing.T) {
+			var ssi *hivev1.SyncSetInstance
 			runtimeObjs := []runtime.Object{test.clusterDeployment, kubeconfigSecret()}
-			for _, s := range test.syncSets {
-				runtimeObjs = append(runtimeObjs, s)
+			if test.syncSet != nil {
+				ssi = syncSetInstanceForSyncSet(test.clusterDeployment, test.syncSet)
+				runtimeObjs = append(runtimeObjs, test.syncSet)
+			} else if test.selectorSyncSet != nil {
+				ssi = syncSetInstanceForSelectorSyncSet(test.clusterDeployment, test.selectorSyncSet)
+				runtimeObjs = append(runtimeObjs, test.selectorSyncSet)
 			}
-			for _, s := range test.selectorSyncSets {
-				runtimeObjs = append(runtimeObjs, s)
-			}
+			runtimeObjs = append(runtimeObjs, ssi)
 			fakeClient := fake.NewFakeClient(runtimeObjs...)
 			dynamicClient := &fakeDynamicClient{}
 
 			helper := &fakeHelper{t: t}
-			rcd := &ReconcileSyncSet{
+			rcd := &ReconcileSyncSetInstance{
 				Client:         fakeClient,
 				scheme:         scheme.Scheme,
 				logger:         log.WithField("controller", "syncset"),
@@ -531,13 +532,13 @@ func TestSyncSetReconcile(t *testing.T) {
 				t.Fatal("expected error not returned")
 			}
 			validateDeletedItems(t, dynamicClient.deletedItems, test.expectDeleted)
-			cd := &hivev1.ClusterDeployment{}
-			err = fakeClient.Get(context.TODO(), types.NamespacedName{Name: testName, Namespace: testNamespace}, cd)
+			result = &hivev1.SyncSetInstance{}
+			err = fakeClient.Get(context.TODO(), types.NamespacedName{Name: ssi.Name, Namespace: ssi.Namespace}, result)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			if test.validate != nil {
-				test.validate(t, cd)
+				test.validate(t, ssi)
 			}
 		})
 	}
@@ -830,17 +831,14 @@ func failedPatchStatus(name string, patches []hivev1.SyncObjectPatch) hivev1.Syn
 	return status
 }
 
-func successfulResourceStatus(name string, resources []runtime.Object, applyMode hivev1.SyncSetResourceApplyMode) hivev1.SyncSetObjectStatus {
+func successfulResourceStatus(name string, resources []runtime.Object) hivev1.SyncSetInstanceStatus {
 	return successfulResourceStatusWithTime(name, resources, applyMode, metav1.Now())
 }
 
-func successfulResourceStatusWithTime(name string, resources []runtime.Object, applyMode hivev1.SyncSetResourceApplyMode, conditionTime metav1.Time) hivev1.SyncSetObjectStatus {
-	status := hivev1.SyncSetObjectStatus{
-		Name: name,
-	}
+func successfulResourceStatusWithTime(name string, resources []runtime.Object, applyMode hivev1.SyncSetResourceApplyMode, conditionTime metav1.Time) hivev1.SyncSetInstanceStatus {
+	status := hivev1.SyncSetInstanceStatus{}
 	for _, r := range resources {
 		obj, _ := meta.Accessor(r)
-		status.ResourceApplyMode = applyMode
 		status.Resources = append(status.Resources, hivev1.SyncStatus{
 			APIVersion: r.GetObjectKind().GroupVersionKind().GroupVersion().String(),
 			Kind:       r.GetObjectKind().GroupVersionKind().Kind,
@@ -929,27 +927,7 @@ func (f *fakeHelper) Patch(name types.NamespacedName, kind, apiVersion string, p
 	return nil
 }
 
-func validateSyncSetObjectStatus(t *testing.T, actual, expected []hivev1.SyncSetObjectStatus) {
-	if len(actual) != len(expected) {
-		t.Errorf("actual status length does not match expected")
-		return
-	}
-	for _, actualStatus := range actual {
-		found := false
-		for _, expectedStatus := range expected {
-			if expectedStatus.Name == actualStatus.Name {
-				found = true
-				validateSyncSetStatus(t, actualStatus, expectedStatus)
-				break
-			}
-		}
-		if !found {
-			t.Errorf("got unexpected syncset object status: %s", actualStatus.Name)
-		}
-	}
-}
-
-func validateSyncSetStatus(t *testing.T, actual, expected hivev1.SyncSetObjectStatus) {
+func validateSyncSetInstanceStatus(t *testing.T, actual, expected hivev1.SyncSetInstanceStatus) {
 	if len(actual.Resources) != len(expected.Resources) {
 		t.Errorf("number of resource statuses does not match, actual: %d, expected: %d", len(actual.Resources), len(expected.Resources))
 		return
@@ -1157,4 +1135,66 @@ func (c *fakeNamespaceableClient) Watch(opts metav1.ListOptions) (watch.Interfac
 
 func (c *fakeNamespaceableClient) Patch(name string, pt types.PatchType, data []byte, options metav1.UpdateOptions, subresources ...string) (*unstructured.Unstructured, error) {
 	return nil, nil
+}
+
+func syncSetInstanceForSyncSet(cd *hivev1.ClusterDeployment, syncSet *hivev1.SyncSet) *hivev1.SyncSetInstance {
+	ownerRef := metav1.NewControllerRef(cd, hivev1.SchemeGroupVersion.WithKind("ClusterDeployment"))
+	hash := computeHash(syncSet.Spec)
+	return &hivev1.SyncSetInstance{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            syncSetInstanceNameForSyncSet(cd, syncSet),
+			Namespace:       cd.Namespace,
+			OwnerReferences: []metav1.OwnerReference{*ownerRef},
+		},
+		Spec: hivev1.SyncSetInstanceSpec{
+			ClusterDeployment: corev1.LocalObjectReference{
+				Name: cd.Name,
+			},
+			SyncSet: &corev1.LocalObjectReference{
+				Name: syncSet.Name,
+			},
+			ResourceApplyMode: syncSet.Spec.ResourceApplyMode,
+			SyncSetHash:       hash,
+		},
+	}
+}
+
+func syncSetInstanceForSelectorSyncSet(cd *hivev1.ClusterDeployment, selectorSyncSet *hivev1.SelectorSyncSet) *hivev1.SyncSetInstance {
+	ownerRef := metav1.NewControllerRef(cd, hivev1.SchemeGroupVersion.WithKind("ClusterDeployment"))
+	hash := computeHash(selectorSyncSet.Spec)
+	return &hivev1.SyncSetInstance{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            syncSetInstanceNameForSelectorSyncSet(cd, selectorSyncSet),
+			Namespace:       cd.Namespace,
+			OwnerReferences: []metav1.OwnerReference{*ownerRef},
+		},
+		Spec: hivev1.SyncSetInstanceSpec{
+			ClusterDeployment: corev1.LocalObjectReference{
+				Name: cd.Name,
+			},
+			SelectorSyncSet: &hivev1.SelectorSyncSetReference{
+				Name: selectorSyncSet.Name,
+			},
+			ResourceApplyMode: selectorSyncSet.Spec.ResourceApplyMode,
+			SyncSetHash:       hash,
+		},
+	}
+}
+
+func syncSetInstanceNameForSyncSet(cd *hivev1.ClusterDeployment, syncSet *hivev1.SyncSet) string {
+	syncSetPart := helpers.GetName(syncSet.Name, "syncset", validation.DNS1123SubdomainMaxLength-validation.DNS1123LabelMaxLength)
+	return fmt.Sprintf("%s-%s", cd.Name, syncSetPart)
+}
+
+func syncSetInstanceNameForSelectorSyncSet(cd *hivev1.ClusterDeployment, selectorSyncSet *hivev1.SelectorSyncSet) string {
+	syncSetPart := helpers.GetName(selectorSyncSet.Name, "selector-syncset", validation.DNS1123SubdomainMaxLength-validation.DNS1123LabelMaxLength)
+	return fmt.Sprintf("%s-%s", cd.Name, syncSetPart)
+}
+
+func computeHash(data interface{}) string {
+	b, err := json.Marshal(data)
+	if err != nil {
+		log.Fatalf("error marshaling json: %v", err)
+	}
+	return fmt.Sprintf("%x", md5.Sum(b))
 }
