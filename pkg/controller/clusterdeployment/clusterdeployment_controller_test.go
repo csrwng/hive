@@ -124,6 +124,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 			name: "Create install job",
 			existing: []runtime.Object{
 				testClusterDeployment(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -143,6 +144,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 			name: "No-op Running install job",
 			existing: []runtime.Object{
 				testClusterDeployment(),
+				testClusterState(),
 				testInstallJob(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
@@ -170,6 +172,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Status.AdminKubeconfigSecret = corev1.LocalObjectReference{Name: adminKubeconfigSecret}
 					return cd
 				}(),
+				testClusterState(),
 				testInstallJob(),
 				testSecret(corev1.SecretTypeOpaque, adminKubeconfigSecret, "kubeconfig", adminKubeconfig),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
@@ -187,6 +190,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 			name: "Completed install job",
 			existing: []runtime.Object{
 				testClusterDeployment(),
+				testClusterState(),
 				testCompletedInstallJob(time.Now()),
 				testMetadataConfigMap(),
 				testSecret(corev1.SecretTypeOpaque, adminKubeconfigSecret, "kubeconfig", adminKubeconfig),
@@ -206,6 +210,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 			name: "PVC cleanup for successful install",
 			existing: []runtime.Object{
 				testInstalledClusterDeployment(time.Now()),
+				testClusterState(),
 				testCompletedInstallJob(time.Now()),
 				testInstallLogPVC(),
 				testMetadataConfigMap(),
@@ -230,6 +235,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Status.InstallRestarts = 5
 					return cd
 				}(),
+				testClusterState(),
 				testCompletedInstallJob(time.Now()),
 				testInstallLogPVC(),
 				testMetadataConfigMap(),
@@ -252,6 +258,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Status.InstallRestarts = 5
 					return cd
 				}(),
+				testClusterState(),
 				testCompletedInstallJob(time.Now().Add(-8 * 24 * time.Hour)),
 				testInstallLogPVC(),
 				testMetadataConfigMap(),
@@ -277,6 +284,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Status.AdminKubeconfigSecret = corev1.LocalObjectReference{Name: adminKubeconfigSecret}
 					return cd
 				}(),
+				testClusterState(),
 				testCompletedInstallJob(time.Now()),
 				testMetadataConfigMap(),
 				testSecret(corev1.SecretTypeOpaque, adminKubeconfigSecret, "kubeconfig", adminKubeconfig),
@@ -293,6 +301,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Status.AdminKubeconfigSecret = corev1.LocalObjectReference{Name: adminKubeconfigSecret}
 					return cd
 				}(),
+				testClusterState(),
 				testCompletedInstallJob(time.Now()),
 				testMetadataConfigMap(),
 				testSecret(corev1.SecretTypeOpaque, adminKubeconfigSecret, "kubeconfig", adminKubeconfig),
@@ -305,6 +314,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 			name: "Completed with install job manually deleted",
 			existing: []runtime.Object{
 				testInstalledClusterDeployment(time.Now()),
+				testClusterState(),
 				testMetadataConfigMap(),
 				testSecret(corev1.SecretTypeOpaque, adminKubeconfigSecret, "kubeconfig", adminKubeconfig),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
@@ -322,6 +332,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 			name: "Delete cluster deployment",
 			existing: []runtime.Object{
 				testDeletedClusterDeployment(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -346,6 +357,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 			name: "No-op deleted cluster without finalizer",
 			existing: []runtime.Object{
 				testDeletedClusterDeploymentWithoutFinalizer(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -361,6 +373,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 			name: "Delete expired cluster deployment",
 			existing: []runtime.Object{
 				testExpiredClusterDeployment(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -381,6 +394,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Spec.PreserveOnDelete = true
 					return cd
 				}(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -407,6 +421,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Status.Installed = false
 					return cd
 				}(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeOpaque, adminKubeconfigSecret, "kubeconfig", adminKubeconfig),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
@@ -437,6 +452,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Status.Installed = false
 					return cd
 				}(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -455,6 +471,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Spec.Images.InstallerImage = "test-installer-image:latest"
 					return cd
 				}(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -481,6 +498,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cis.Spec.InstallerImage = strPtr("test-cis-installer-image:latest")
 					return cis
 				}(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -502,6 +520,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Spec.ImageSet = &hivev1.ClusterImageSetReference{Name: testClusterImageSetName}
 					return cd
 				}(),
+				testClusterState(),
 				testClusterImageSet(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
@@ -535,6 +554,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Spec.ImageSet = &hivev1.ClusterImageSetReference{Name: testClusterImageSetName}
 					return cd
 				}(),
+				testClusterState(),
 				testClusterImageSet(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
@@ -571,6 +591,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cis.Spec.ReleaseImage = strPtr("test-release-image:latest")
 					return cis
 				}(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -608,6 +629,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Spec.ManageDNS = true
 					return cd
 				}(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -625,6 +647,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Spec.ManageDNS = true
 					return cd
 				}(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -643,6 +666,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Spec.ManageDNS = true
 					return cd
 				}(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -665,6 +689,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					})
 					return cd
 				}(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -684,6 +709,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Annotations[dnsReadyAnnotation] = "NOW"
 					return cd
 				}(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -702,6 +728,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Spec.ManageDNS = true
 					return cd
 				}(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -721,6 +748,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Spec.ManageDNS = true
 					return cd
 				}(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -746,6 +774,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cis.Spec.HiveImage = &testHiveImage
 					return cis
 				}(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -766,6 +795,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Spec.ImageSet = &hivev1.ClusterImageSetReference{Name: testClusterImageSetName}
 					return cd
 				}(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -805,6 +835,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 			name: "Delete old install job when job hash missing",
 			existing: []runtime.Object{
 				testClusterDeployment(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -823,6 +854,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 			name: "Delete old install job when job hash changes",
 			existing: []runtime.Object{
 				testClusterDeployment(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeOpaque, sshKeySecret, adminSSHKeySecretKey, "fakesshkey"),
@@ -846,6 +878,7 @@ func TestClusterDeploymentReconcile(t *testing.T) {
 					cd.Status.AdminKubeconfigSecret = corev1.LocalObjectReference{Name: adminKubeconfigSecret}
 					return cd
 				}(),
+				testClusterState(),
 				testSecret(corev1.SecretTypeOpaque, adminKubeconfigSecret, "kubeconfig", adminKubeconfig),
 				testSecret(corev1.SecretTypeDockerConfigJson, pullSecretSecret, corev1.DockerConfigJsonKey, "{}"),
 				testSecret(corev1.SecretTypeDockerConfigJson, constants.GetMergedPullSecretName(testClusterDeployment()), corev1.DockerConfigJsonKey, "{}"),
@@ -946,6 +979,13 @@ func testEmptyClusterDeployment() *hivev1.ClusterDeployment {
 		},
 	}
 	return cd
+}
+
+func testClusterState() *hivev1.ClusterState {
+	cs := &hivev1.ClusterState{}
+	cs.Name = testName
+	cs.Namespace = testNamespace
+	return cs
 }
 
 func testClusterDeployment() *hivev1.ClusterDeployment {

@@ -449,6 +449,30 @@ func (r *ReconcileClusterDeployment) reconcile(request reconcile.Request, cd *hi
 		}
 	}
 
+	// create a corresponding ClusterState resource
+	clusterState := &hivev1.ClusterState{}
+	err = r.Get(context.TODO(), request.NamespacedName, clusterState)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			cdLog.Debug("Creating cluster state resource for cluster deployment")
+			clusterState.Name = cd.Name
+			clusterState.Namespace = cd.Namespace
+			clusterState.Spec.ClusterDeployment.Name = cd.Name
+			if err = controllerutil.SetControllerReference(cd, clusterState, r.scheme); err != nil {
+				cdLog.WithError(err).Error("error setting controller reference on cluster state")
+				return reconcile.Result{}, err
+			}
+			err = r.Create(context.TODO(), clusterState)
+			if err != nil {
+				cdLog.WithError(err).Error("cannot create corresponding cluster state")
+				return reconcile.Result{}, err
+			}
+			return reconcile.Result{}, nil
+		}
+		cdLog.WithError(err).Error("cannot fetch corresponding clusterstate")
+		return reconcile.Result{}, err
+	}
+
 	// firstInstalledObserve is the flag that is used for reporting the provision job duration metric
 	firstInstalledObserve := false
 	containerRestarts := 0
