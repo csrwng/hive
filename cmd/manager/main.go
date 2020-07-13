@@ -39,6 +39,7 @@ import (
 	"github.com/openshift/hive/pkg/controller/controlplanecerts"
 	"github.com/openshift/hive/pkg/controller/dnsendpoint"
 	"github.com/openshift/hive/pkg/controller/dnszone"
+	"github.com/openshift/hive/pkg/controller/hibernation"
 	"github.com/openshift/hive/pkg/controller/metrics"
 	"github.com/openshift/hive/pkg/controller/remoteingress"
 	"github.com/openshift/hive/pkg/controller/remotemachineset"
@@ -79,6 +80,7 @@ var controllerFuncs = map[string]controllerSetupFunc{
 	syncsetinstance.ControllerName:      syncsetinstance.Add,
 	unreachable.ControllerName:          unreachable.Add,
 	velerobackup.ControllerName:         velerobackup.Add,
+	hibernation.ControllerName:          hibernation.Add,
 }
 
 type controllerManagerOptions struct {

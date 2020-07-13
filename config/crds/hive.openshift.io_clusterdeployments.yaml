@@ -479,6 +479,14 @@ spec:
                   - vCenter
                   type: object
               type: object
+            powerState:
+              description: PowerState indicates whether a cluster should be running
+                or hibernating.
+              enum:
+              - ""
+              - Running
+              - Hibernating
+              type: string
             preserveOnDelete:
               description: PreserveOnDelete allows the user to disconnect a cluster
                 from Hive without deprovisioning it
