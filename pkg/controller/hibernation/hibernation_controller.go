@@ -2,6 +2,8 @@ package hibernation
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"time"
 
@@ -28,6 +30,7 @@ import (
 	hivemetrics "github.com/openshift/hive/pkg/controller/metrics"
 	controllerutils "github.com/openshift/hive/pkg/controller/utils"
 	"github.com/openshift/hive/pkg/remoteclient"
+	machineapi "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 )
 
 const (
@@ -41,6 +44,12 @@ const (
 	// csrCheckInterval is the time interval for polling
 	// pending CSRs
 	csrCheckInterval = 10 * time.Second
+
+	// Namespace on target cluster that contains the Kubelet CA
+	configNamespace = "openshift-config-managed"
+
+	// Name of configmap in config namespace that contains the Kubelet CA
+	kubeletCAConfigMap = "csr-controller-ca"
 )
 
 var (
@@ -411,12 +420,40 @@ func (r *hibernationReconciler) checkCSRs(logger log.FieldLogger, cd *hivev1.Clu
 		logger,
 	)
 	if requeue {
-		logger.Error("Failed to get client to target cluster")
+		logger.Error("Failed to get kube client to target cluster")
+		return reconcile.Result{}, errors.New("failed to get kube client to target cluster")
+	}
+	if unreachable {
+		logger.Info("Cluster is still not reachable while checking CSRs, wating")
+		return reconcile.Result{RequeueAfter: stateCheckInterval}, nil
+	}
+
+	genericClient, unreachable, requeue := remoteclient.ConnectToRemoteCluster(
+		cd,
+		r.remoteClientBuilder(cd),
+		r.Client,
+		logger,
+	)
+	if requeue {
+		logger.Error("failed to get client to target cluster")
 		return reconcile.Result{}, errors.New("failed to get client to target cluster")
 	}
 	if unreachable {
 		logger.Info("Cluster is still not reachable while checking CSRs, wating")
 		return reconcile.Result{RequeueAfter: stateCheckInterval}, nil
+	}
+
+	machineList := &machineapi.MachineList{}
+	err := genericClient.List(context.TODO(), machineList)
+	if err != nil {
+		logger.WithError(err).Error("failed to list machines")
+		return reconcile.Result{}, errors.Wrap(err, "failed to list machines")
+	}
+
+	kubeletCA, err := getKubeletCA(kubeClient)
+	if err != nil {
+		logger.WithError(err).Error("failed to get Kubelet CA")
+		return reconcile.Result{}, errors.Wrap(err, "failed to get Kubelet CA")
 	}
 
 	csrList, err := kubeClient.CertificatesV1beta1().CertificateSigningRequests().List(context.TODO(), metav1.ListOptions{})
@@ -425,28 +462,34 @@ func (r *hibernationReconciler) checkCSRs(logger log.FieldLogger, cd *hivev1.Clu
 		return reconcile.Result{}, errors.Wrap(err, "failed to list CSRs")
 	}
 	for i := range csrList.Items {
-		if isApproved(&csrList.Items[i]) {
-			logger.WithField("csr", csrList.Items[i].Name).Debug("CSR is already approved")
+		csr := &csrList.Items[i]
+		if isApproved(csr) {
+			logger.WithField("csr", csr.Name).Debug("CSR is already approved")
 			continue
 		}
-		if shouldApprove(&csrList.Items[i]) {
-			err = approveCSR(kubeClient, &csrList.Items[i])
-			if err != nil {
-				logger.WithError(err).WithField("csr", csrList.Items[i].Name).Error("Failed to approve CSR")
-				return reconcile.Result{}, errors.Wrap(err, "failed to approve CSR")
-			}
-			logger.WithField("csr", csrList.Items[i].Name).Info("CSR approved")
-		} else {
-			logger.WithField("csr", csrList.Items[i].Name).Warning("CSR failed validation")
+		parsedCSR, err := parseCSR(csr)
+		if err != nil {
+			logger.WithError(err).Error("failed to parse CSR")
+			return reconcile.Result{}, errors.Wrap(err, "failed to parse CSR")
 		}
+		if err := authorizeCSR(
+			machineList.Items,
+			kubeClient.CoreV1().Nodes(),
+			csr,
+			parsedCSR,
+			kubeletCA); err != nil {
+			logger.WithError(err).Error("CSR authorization failed")
+			return reconcile.Result{}, errors.Wrap(err, "CSR authorization failed")
+		}
+		err = approveCSR(kubeClient, &csrList.Items[i])
+		if err != nil {
+			logger.WithError(err).WithField("csr", csrList.Items[i].Name).Error("Failed to approve CSR")
+			return reconcile.Result{}, errors.Wrap(err, "failed to approve CSR")
+		}
+		logger.WithField("csr", csrList.Items[i].Name).Info("CSR approved")
 	}
 	// Requeue quickly after so we can recheck whether more CSRs need to be approved
 	return reconcile.Result{RequeueAfter: csrCheckInterval}, nil
-}
-
-func shouldApprove(csr *certsv1beta1.CertificateSigningRequest) bool {
-	// TODO: Implement CSR validation
-	return true
 }
 
 func approveCSR(client kubeclient.Interface, csr *certsv1beta1.CertificateSigningRequest) error {
@@ -480,11 +523,32 @@ func isNodeReady(node *corev1.Node) bool {
 	return false
 }
 
-func isApproved(csr *certsv1beta1.CertificateSigningRequest) bool {
-	for _, c := range csr.Status.Conditions {
-		if c.Type == certsv1beta1.CertificateApproved {
-			return true
-		}
+// parseCSR extracts the CSR from the API object and decodes it.
+func parseCSR(obj *certsv1beta1.CertificateSigningRequest) (*x509.CertificateRequest, error) {
+	// extract PEM from request object
+	block, _ := pem.Decode(obj.Spec.Request)
+	if block == nil || block.Type != "CERTIFICATE REQUEST" {
+		return nil, fmt.Errorf("PEM block type must be CERTIFICATE REQUEST")
 	}
-	return false
+	return x509.ParseCertificateRequest(block.Bytes)
+}
+
+func getKubeletCA(c kubeclient.Interface) (*x509.CertPool, error) {
+	configMap, err := c.CoreV1().ConfigMaps(configNamespace).
+		Get(context.Background(), kubeletCAConfigMap, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	caBundle, ok := configMap.Data["ca-bundle.crt"]
+	if !ok {
+		return nil, fmt.Errorf("no ca-bundle.crt in %s", kubeletCAConfigMap)
+	}
+
+	certPool := x509.NewCertPool()
+
+	if ok := certPool.AppendCertsFromPEM([]byte(caBundle)); !ok {
+		return nil, fmt.Errorf("failed to parse ca-bundle.crt in %s", kubeletCAConfigMap)
+	}
+	return certPool, nil
 }
