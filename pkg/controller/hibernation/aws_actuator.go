@@ -47,6 +47,10 @@ func (a *awsActuator) StopMachines(logger log.FieldLogger, cd *hivev1.ClusterDep
 	if err != nil {
 		return err
 	}
+	if len(instanceIDs) == 0 {
+		logger.Warning("AWS: no instances were found to stop")
+		return nil
+	}
 	_, err = awsClient.StopInstances(&ec2.StopInstancesInput{
 		InstanceIds: instanceIDs,
 	})
@@ -66,6 +70,10 @@ func (a *awsActuator) StartMachines(logger log.FieldLogger, cd *hivev1.ClusterDe
 	instanceIDs, err := getClusterInstanceIDs(logger, cd, awsClient, []string{"stopping", "stopped", "shutting-down"})
 	if err != nil {
 		return err
+	}
+	if len(instanceIDs) == 0 {
+		logger.Warning("AWS: no instances were found to start")
+		return nil
 	}
 	_, err = awsClient.StartInstances(&ec2.StartInstancesInput{
 		InstanceIds: instanceIDs,
