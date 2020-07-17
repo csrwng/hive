@@ -297,7 +297,7 @@ func authorizeServingRenewal(nodeName string, csr *x509.CertificateRequest, curr
 }
 
 func isReqFromNodeBootstrapper(req *certificatesv1beta1.CertificateSigningRequest) bool {
-	return req.Spec.Username == nodeBootstrapperUsername && nodeBootstrapperGroups.IsSuperset(sets.NewString(req.Spec.Groups...))
+	return req.Spec.Username == nodeBootstrapperUsername && nodeBootstrapperGroups.Equal(sets.NewString(req.Spec.Groups...))
 }
 
 func findMatchingMachineFromNodeRef(nodeName string, machines []v1beta1.Machine) (v1beta1.Machine, bool) {
