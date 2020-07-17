@@ -43,7 +43,6 @@ const (
 
 var nodeBootstrapperGroups = sets.NewString(
 	"system:serviceaccounts:openshift-machine-config-operator",
-	"system:serviceaccounts",
 	"system:authenticated",
 )
 
