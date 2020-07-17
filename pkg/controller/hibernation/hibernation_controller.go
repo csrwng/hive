@@ -450,12 +450,6 @@ func (r *hibernationReconciler) checkCSRs(logger log.FieldLogger, cd *hivev1.Clu
 		return reconcile.Result{}, errors.Wrap(err, "failed to list machines")
 	}
 
-	kubeletCA, err := getKubeletCA(kubeClient)
-	if err != nil {
-		logger.WithError(err).Error("failed to get Kubelet CA")
-		return reconcile.Result{}, errors.Wrap(err, "failed to get Kubelet CA")
-	}
-
 	csrList, err := kubeClient.CertificatesV1beta1().CertificateSigningRequests().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		logger.WithError(err).Error("failed to list CSRs")
@@ -476,8 +470,7 @@ func (r *hibernationReconciler) checkCSRs(logger log.FieldLogger, cd *hivev1.Clu
 			machineList.Items,
 			kubeClient.CoreV1().Nodes(),
 			csr,
-			parsedCSR,
-			kubeletCA); err != nil {
+			parsedCSR); err != nil {
 			logger.WithError(err).Error("CSR authorization failed")
 			return reconcile.Result{}, errors.Wrap(err, "CSR authorization failed")
 		}

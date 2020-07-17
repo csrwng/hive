@@ -134,7 +134,6 @@ func authorizeCSR(
 	nodes corev1client.NodeInterface,
 	req *certificatesv1beta1.CertificateSigningRequest,
 	csr *x509.CertificateRequest,
-	ca *x509.CertPool,
 ) error {
 	if req == nil || csr == nil {
 		return fmt.Errorf("Invalid request")
@@ -149,34 +148,6 @@ func authorizeCSR(
 	nodeAsking, err := validateCSRContents(req, csr)
 	if err != nil {
 		return err
-	}
-
-	// Check for an existing serving cert from the node.  If found, use the
-	// renewal flow.  Any error connecting to the node, including validation of
-	// the presented cert against the current Kubelet CA, will result in
-	// fallback to the original flow relying on the machine-api.
-	//
-	// This is only supported if we were given a CA to verify against.
-	if ca != nil {
-		servingCert, err := getServingCert(nodes, nodeAsking, ca)
-		if err == nil && servingCert != nil {
-			klog.Infof("Found existing serving cert for %s", nodeAsking)
-
-			err := authorizeServingRenewal(nodeAsking, csr, servingCert, ca)
-
-			// No error, the renewal is authorized.
-			if err == nil {
-				return nil
-			}
-
-			klog.Warningf("Could not use current serving cert for renewal: %v", err)
-			klog.Warningf("Current SAN Values: %v, CSR SAN Values: %v",
-				certSANs(servingCert), csrSANs(csr))
-		}
-
-		if err != nil {
-			klog.Warningf("Failed to retrieve current serving cert: %v", err)
-		}
 	}
 
 	// Fall back to the original machine-api based authorization scheme.
@@ -256,27 +227,31 @@ func authorizeNodeClientCSR(machines []v1beta1.Machine, nodes corev1client.NodeI
 	_, err := nodes.Get(context.Background(), nodeName, metav1.GetOptions{})
 	switch {
 	case err == nil:
-		return fmt.Errorf("node %s already exists", nodeName)
+		// change for hive hibernation: it is expected that the node already exists
 	case errors.IsNotFound(err):
-		// good, node does not exist
+		// change for hive hibernation: we only approve csrs for nodes that exist
+		return fmt.Errorf("node %s does not exist in the cluster, cannot be approved", nodeName)
 	default:
 		return fmt.Errorf("failed to check if node %s already exists: %v", nodeName, err)
 	}
 
-	nodeMachine, ok := findMatchingMachineFromInternalDNS(nodeName, machines)
+	_, ok := findMatchingMachineFromInternalDNS(nodeName, machines)
 	if !ok {
 		return fmt.Errorf("failed to find machine for node %s", nodeName)
 	}
 
-	if nodeMachine.Status.NodeRef != nil {
-		return fmt.Errorf("machine for node %s already has node ref", nodeName)
-	}
+	// change for hive hibernation: it is fine for the machine to already have a noderef
+	// if nodeMachine.Status.NodeRef != nil {
+	// 	return fmt.Errorf("machine for node %s already has node ref", nodeName)
+	// }
 
-	start := nodeMachine.CreationTimestamp.Add(-maxMachineClockSkew)
-	end := nodeMachine.CreationTimestamp.Add(maxMachineDelta)
-	if !inTimeSpan(start, end, req.CreationTimestamp.Time) {
-		return fmt.Errorf("CSR %s creation time %s not in range (%s, %s)", req.Name, req.CreationTimestamp.Time, start, end)
-	}
+	// change for hive hibernation: skip machine creation timestamp check
+
+	// start := nodeMachine.CreationTimestamp.Add(-maxMachineClockSkew)
+	// end := nodeMachine.CreationTimestamp.Add(maxMachineDelta)
+	// if !inTimeSpan(start, end, req.CreationTimestamp.Time) {
+	// 	return fmt.Errorf("CSR %s creation time %s not in range (%s, %s)", req.Name, req.CreationTimestamp.Time, start, end)
+	// }
 
 	return nil // approve node client cert
 }
