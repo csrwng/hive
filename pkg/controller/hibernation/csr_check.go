@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
+	"github.com/openshift/cluster-api/pkg/apis/machine/v1beta1"
 	certificatesv1beta1 "k8s.io/api/certificates/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"

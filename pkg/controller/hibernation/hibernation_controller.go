@@ -26,11 +26,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	machineapi "github.com/openshift/cluster-api/pkg/apis/machine/v1beta1"
 	hivev1 "github.com/openshift/hive/pkg/apis/hive/v1"
 	hivemetrics "github.com/openshift/hive/pkg/controller/metrics"
 	controllerutils "github.com/openshift/hive/pkg/controller/utils"
 	"github.com/openshift/hive/pkg/remoteclient"
-	machineapi "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 )
 
 const (
