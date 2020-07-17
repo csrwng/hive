@@ -170,6 +170,7 @@ func (r *ReconcileRemoteMachineSet) Reconcile(request reconcile.Request) (reconc
 	// Attempt to connect to the remote cluster using the preferred API URL.
 	_, primaryErr := remoteClientBuilder.UsePrimaryAPIURL().Build()
 	if primaryErr != nil {
+		cdLog.WithError(primaryErr).Debug("cluster is not reachable via primary URL")
 		// If the remote cluster is not accessible via the preferred API URL, check if there is a fallback API URL to use.
 		if hasOverride(cd) {
 			cdLog.WithError(primaryErr).Info("unable to create remote API client using API URL override")

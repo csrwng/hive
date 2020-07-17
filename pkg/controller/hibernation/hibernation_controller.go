@@ -145,7 +145,7 @@ func (r *hibernationReconciler) Reconcile(request reconcile.Request) (reconcile.
 	}
 
 	// If cluster is already deleted, skip any processing
-	if cd.DeletionTimestamp != nil {
+	if !cd.DeletionTimestamp.IsZero() {
 		return reconcile.Result{}, nil
 	}
 
