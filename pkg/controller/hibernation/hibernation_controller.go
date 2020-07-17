@@ -39,11 +39,11 @@ const (
 
 	// stateCheckInterval is the time interval for polling
 	// whether a cluster's machines are stopped or are running
-	stateCheckInterval = 30 * time.Second
+	stateCheckInterval = 60 * time.Second
 
 	// csrCheckInterval is the time interval for polling
 	// pending CSRs
-	csrCheckInterval = 10 * time.Second
+	csrCheckInterval = 20 * time.Second
 
 	// Namespace on target cluster that contains the Kubelet CA
 	configNamespace = "openshift-config-managed"
@@ -472,12 +472,12 @@ func (r *hibernationReconciler) checkCSRs(logger log.FieldLogger, cd *hivev1.Clu
 			csr,
 			parsedCSR); err != nil {
 			logger.WithError(err).Error("CSR authorization failed")
-			return reconcile.Result{}, errors.Wrap(err, "CSR authorization failed")
+			continue
 		}
 		err = approveCSR(kubeClient, &csrList.Items[i])
 		if err != nil {
 			logger.WithError(err).WithField("csr", csrList.Items[i].Name).Error("Failed to approve CSR")
-			return reconcile.Result{}, errors.Wrap(err, "failed to approve CSR")
+			continue
 		}
 		logger.WithField("csr", csrList.Items[i].Name).Info("CSR approved")
 	}
