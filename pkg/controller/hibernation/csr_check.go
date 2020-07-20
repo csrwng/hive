@@ -41,9 +41,14 @@ const (
 	maxMachineDelta     = 2 * time.Hour
 )
 
-var nodeBootstrapperGroups = sets.NewString(
+var workerNodeBootstrapperGroups = sets.NewString(
 	"system:serviceaccounts:openshift-machine-config-operator",
 	"system:serviceaccounts",
+	"system:authenticated",
+)
+
+var masterNodeBootstrapperGroups = sets.NewString(
+	"system:serviceaccounts:openshift-machine-config-operator",
 	"system:authenticated",
 )
 
@@ -297,7 +302,10 @@ func authorizeServingRenewal(nodeName string, csr *x509.CertificateRequest, curr
 }
 
 func isReqFromNodeBootstrapper(req *certificatesv1beta1.CertificateSigningRequest) bool {
-	return req.Spec.Username == nodeBootstrapperUsername && nodeBootstrapperGroups.Equal(sets.NewString(req.Spec.Groups...))
+	groups := sets.NewString(req.Spec.Groups...)
+	return req.Spec.Username == nodeBootstrapperUsername &&
+		(workerNodeBootstrapperGroups.Equal(groups) ||
+			masterNodeBootstrapperGroups.Equal(groups))
 }
 
 func findMatchingMachineFromNodeRef(nodeName string, machines []v1beta1.Machine) (v1beta1.Machine, bool) {

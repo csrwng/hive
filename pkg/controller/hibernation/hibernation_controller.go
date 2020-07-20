@@ -226,6 +226,12 @@ func (r *hibernationReconciler) startMachines(logger log.FieldLogger, cd *hivev1
 	if err := actuator.StartMachines(logger, cd, r.Client); err != nil {
 		return reconcile.Result{}, err
 	}
+	return r.setResumingCondition(logger, cd)
+}
+
+func (r *hibernationReconciler) setResumingCondition(logger log.FieldLogger, cd *hivev1.ClusterDeployment) (reconcile.Result, error) {
+	// For the resuming condition, we want to update always so that the unreachable controller can
+	// queue the cluster deployment to check whether the cluster is reachable.
 	oldStatus := cd.Status.DeepCopy()
 	cd.Status.Conditions = controllerutils.SetClusterDeploymentCondition(
 		cd.Status.Conditions,
@@ -233,7 +239,7 @@ func (r *hibernationReconciler) startMachines(logger log.FieldLogger, cd *hivev1
 		corev1.ConditionTrue,
 		hivev1.ResumingHibernationReason,
 		"Starting cluster machines",
-		controllerutils.UpdateConditionIfReasonOrMessageChange)
+		controllerutils.UpdateConditionAlways)
 	if !equality.Semantic.DeepEqual(oldStatus, cd.Status) {
 		if err := r.Status().Update(context.TODO(), cd); err != nil {
 			logger.Error("Failed to update status: %v", err)
@@ -323,7 +329,7 @@ func (r *hibernationReconciler) checkClusterResumed(logger log.FieldLogger, cd *
 	}
 	if unreachable {
 		logger.Debug("Cluster is still not reachable, waiting")
-		return reconcile.Result{RequeueAfter: stateCheckInterval}, nil
+		return r.setResumingCondition(logger, cd)
 	}
 	if !ready {
 		logger.Info("Nodes are not ready, checking for CSRs to approve")
@@ -425,7 +431,7 @@ func (r *hibernationReconciler) checkCSRs(logger log.FieldLogger, cd *hivev1.Clu
 	}
 	if unreachable {
 		logger.Info("Cluster is still not reachable while checking CSRs, wating")
-		return reconcile.Result{RequeueAfter: stateCheckInterval}, nil
+		return r.setResumingCondition(logger, cd)
 	}
 
 	genericClient, unreachable, requeue := remoteclient.ConnectToRemoteCluster(
@@ -440,7 +446,7 @@ func (r *hibernationReconciler) checkCSRs(logger log.FieldLogger, cd *hivev1.Clu
 	}
 	if unreachable {
 		logger.Info("Cluster is still not reachable while checking CSRs, wating")
-		return reconcile.Result{RequeueAfter: stateCheckInterval}, nil
+		return r.setResumingCondition(logger, cd)
 	}
 
 	machineList := &machineapi.MachineList{}
