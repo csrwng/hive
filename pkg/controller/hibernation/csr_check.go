@@ -19,7 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
+	kubeclient "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog"
 )
@@ -119,7 +119,7 @@ func validateCSRContents(req *certificatesv1beta1.CertificateSigningRequest, csr
 	return nodeAsking, nil
 }
 
-// authorizeCSR authorizes the CertificateSigningRequest req for a node's client or server certificate.
+// Authorize authorizes the CertificateSigningRequest req for a node's client or server certificate.
 // csr should be the parsed CSR from req.Spec.Request.
 //
 // For client certificates, when the flow is not globally disabled:
@@ -134,9 +134,9 @@ func validateCSRContents(req *certificatesv1beta1.CertificateSigningRequest, csr
 //
 // For server certificates:
 // Names contained in the CSR are checked against addresses in the corresponding node's machine status.
-func authorizeCSR(
+func (*csrUtility) Authorize(
 	machines []v1beta1.Machine,
-	nodes corev1client.NodeInterface,
+	client kubeclient.Interface,
 	req *certificatesv1beta1.CertificateSigningRequest,
 	csr *x509.CertificateRequest,
 ) error {
@@ -145,7 +145,7 @@ func authorizeCSR(
 	}
 
 	if isNodeClientCert(req, csr) {
-		return authorizeNodeClientCSR(machines, nodes, req, csr)
+		return authorizeNodeClientCSR(machines, client, req, csr)
 	}
 
 	// node serving cert validation after this point
@@ -218,7 +218,7 @@ func authorizeCSR(
 	return nil
 }
 
-func authorizeNodeClientCSR(machines []v1beta1.Machine, nodes corev1client.NodeInterface, req *certificatesv1beta1.CertificateSigningRequest, csr *x509.CertificateRequest) error {
+func authorizeNodeClientCSR(machines []v1beta1.Machine, client kubeclient.Interface, req *certificatesv1beta1.CertificateSigningRequest, csr *x509.CertificateRequest) error {
 
 	if !isReqFromNodeBootstrapper(req) {
 		return fmt.Errorf("CSR %s for node client cert has wrong user %s or groups %s", req.Name, req.Spec.Username, sets.NewString(req.Spec.Groups...))
@@ -229,7 +229,7 @@ func authorizeNodeClientCSR(machines []v1beta1.Machine, nodes corev1client.NodeI
 		return fmt.Errorf("CSR %s has empty node name", req.Name)
 	}
 
-	_, err := nodes.Get(context.Background(), nodeName, metav1.GetOptions{})
+	_, err := client.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
 	switch {
 	case err == nil:
 		// change for hive hibernation: it is expected that the node already exists
@@ -371,12 +371,12 @@ func recentlyPendingCSRs(indexer cache.Indexer) int {
 // If successful, and the returned TLS certificate is validated against the
 // given CA, the node's serving certificate as presented over the established
 // connection is returned.
-func getServingCert(nodes corev1client.NodeInterface, nodeName string, ca *x509.CertPool) (*x509.Certificate, error) {
+func getServingCert(client kubeclient.Interface, nodeName string, ca *x509.CertPool) (*x509.Certificate, error) {
 	if ca == nil {
 		return nil, fmt.Errorf("no CA found: will not retrieve serving cert")
 	}
 
-	node, err := nodes.Get(context.Background(), nodeName, metav1.GetOptions{})
+	node, err := client.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}

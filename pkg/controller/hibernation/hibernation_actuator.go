@@ -1,5 +1,7 @@
 package hibernation
 
+//go:generate mockgen -source=./hibernation_actuator.go -destination=./mock/hibernation_actuator_generated.go -package=mock
+
 import (
 	log "github.com/sirupsen/logrus"
 

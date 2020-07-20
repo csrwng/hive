@@ -2,8 +2,6 @@ package hibernation
 
 import (
 	"context"
-	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	"time"
 
@@ -11,13 +9,11 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
-	certsv1beta1 "k8s.io/api/certificates/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	kubeclient "k8s.io/client-go/kubernetes"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -77,8 +73,9 @@ func RegisterActuator(a HibernationActuator) {
 // hibernationReconciler is the reconciler type for this controller
 type hibernationReconciler struct {
 	client.Client
-	scheme *runtime.Scheme
-	logger log.FieldLogger
+	scheme  *runtime.Scheme
+	logger  log.FieldLogger
+	csrUtil csrHelper
 
 	remoteClientBuilder func(cd *hivev1.ClusterDeployment) remoteclient.Builder
 }
@@ -87,9 +84,10 @@ type hibernationReconciler struct {
 func NewReconciler(mgr manager.Manager) *hibernationReconciler {
 	logger := log.WithField("controller", ControllerName)
 	r := &hibernationReconciler{
-		Client: controllerutils.NewClientWithMetricsOrDie(mgr, ControllerName),
-		scheme: mgr.GetScheme(),
-		logger: logger,
+		Client:  controllerutils.NewClientWithMetricsOrDie(mgr, ControllerName),
+		scheme:  mgr.GetScheme(),
+		logger:  logger,
+		csrUtil: &csrUtility{},
 	}
 	r.remoteClientBuilder = func(cd *hivev1.ClusterDeployment) remoteclient.Builder {
 		return remoteclient.NewBuilder(r.Client, cd, ControllerName)
@@ -463,24 +461,24 @@ func (r *hibernationReconciler) checkCSRs(logger log.FieldLogger, cd *hivev1.Clu
 	}
 	for i := range csrList.Items {
 		csr := &csrList.Items[i]
-		if isApproved(csr) {
+		if r.csrUtil.IsApproved(csr) {
 			logger.WithField("csr", csr.Name).Debug("CSR is already approved")
 			continue
 		}
-		parsedCSR, err := parseCSR(csr)
+		parsedCSR, err := r.csrUtil.Parse(csr)
 		if err != nil {
 			logger.WithError(err).Error("failed to parse CSR")
 			return reconcile.Result{}, errors.Wrap(err, "failed to parse CSR")
 		}
-		if err := authorizeCSR(
+		if err := r.csrUtil.Authorize(
 			machineList.Items,
-			kubeClient.CoreV1().Nodes(),
+			kubeClient,
 			csr,
 			parsedCSR); err != nil {
 			logger.WithError(err).Error("CSR authorization failed")
 			continue
 		}
-		err = approveCSR(kubeClient, &csrList.Items[i])
+		err = r.csrUtil.Approve(kubeClient, &csrList.Items[i])
 		if err != nil {
 			logger.WithError(err).WithField("csr", csrList.Items[i].Name).Error("Failed to approve CSR")
 			continue
@@ -491,28 +489,6 @@ func (r *hibernationReconciler) checkCSRs(logger log.FieldLogger, cd *hivev1.Clu
 	return reconcile.Result{RequeueAfter: csrCheckInterval}, nil
 }
 
-func approveCSR(client kubeclient.Interface, csr *certsv1beta1.CertificateSigningRequest) error {
-
-	// Remove any previous CertificateApproved condition
-	newConditions := []certsv1beta1.CertificateSigningRequestCondition{}
-	for _, c := range csr.Status.Conditions {
-		if c.Type != certsv1beta1.CertificateApproved {
-			newConditions = append(newConditions, c)
-		}
-	}
-
-	// Add approved condition
-	newConditions = append(newConditions, certsv1beta1.CertificateSigningRequestCondition{
-		Type:           certsv1beta1.CertificateApproved,
-		Reason:         "KubectlApprove",
-		Message:        "This CSR was automatically approved by Hive",
-		LastUpdateTime: metav1.Now(),
-	})
-	csr.Status.Conditions = newConditions
-	_, err := client.CertificatesV1beta1().CertificateSigningRequests().UpdateApproval(context.TODO(), csr, metav1.UpdateOptions{})
-	return err
-}
-
 func isNodeReady(node *corev1.Node) bool {
 	for _, c := range node.Status.Conditions {
 		if c.Type == corev1.NodeReady {
@@ -520,34 +496,4 @@ func isNodeReady(node *corev1.Node) bool {
 		}
 	}
 	return false
-}
-
-// parseCSR extracts the CSR from the API object and decodes it.
-func parseCSR(obj *certsv1beta1.CertificateSigningRequest) (*x509.CertificateRequest, error) {
-	// extract PEM from request object
-	block, _ := pem.Decode(obj.Spec.Request)
-	if block == nil || block.Type != "CERTIFICATE REQUEST" {
-		return nil, fmt.Errorf("PEM block type must be CERTIFICATE REQUEST")
-	}
-	return x509.ParseCertificateRequest(block.Bytes)
-}
-
-func getKubeletCA(c kubeclient.Interface) (*x509.CertPool, error) {
-	configMap, err := c.CoreV1().ConfigMaps(configNamespace).
-		Get(context.Background(), kubeletCAConfigMap, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	caBundle, ok := configMap.Data["ca-bundle.crt"]
-	if !ok {
-		return nil, fmt.Errorf("no ca-bundle.crt in %s", kubeletCAConfigMap)
-	}
-
-	certPool := x509.NewCertPool()
-
-	if ok := certPool.AppendCertsFromPEM([]byte(caBundle)); !ok {
-		return nil, fmt.Errorf("failed to parse ca-bundle.crt in %s", kubeletCAConfigMap)
-	}
-	return certPool, nil
 }
