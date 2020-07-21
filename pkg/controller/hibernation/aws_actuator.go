@@ -5,20 +5,22 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
-	awsclient "github.com/openshift/hive/pkg/awsclient"
 	log "github.com/sirupsen/logrus"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	hivev1 "github.com/openshift/hive/pkg/apis/hive/v1"
+	awsclient "github.com/openshift/hive/pkg/awsclient"
 )
 
 func init() {
-	RegisterActuator(&awsActuator{})
+	RegisterActuator(&awsActuator{awsClientFn: getAWSClient})
 }
 
 type awsActuator struct {
+	// awsClientFn is the function to build an AWS client, here for testing
+	awsClientFn func(log.FieldLogger, *hivev1.ClusterDeployment, client.Client) (awsclient.Client, error)
 }
 
 // CanHandle returns true if the actuator can handle a particular ClusterDeployment
@@ -30,7 +32,7 @@ func (a *awsActuator) CanHandle(cd *hivev1.ClusterDeployment) bool {
 func (a *awsActuator) StopMachines(logger log.FieldLogger, cd *hivev1.ClusterDeployment, c client.Client) error {
 	logger = logger.WithField("cloud", "aws")
 	logger.Info("stopping machines")
-	awsClient, err := getAWSClient(logger, cd, c)
+	awsClient, err := a.awsClientFn(logger, cd, c)
 	if err != nil {
 		return err
 	}
@@ -55,7 +57,7 @@ func (a *awsActuator) StopMachines(logger log.FieldLogger, cd *hivev1.ClusterDep
 func (a *awsActuator) StartMachines(logger log.FieldLogger, cd *hivev1.ClusterDeployment, c client.Client) error {
 	logger = logger.WithField("cloud", "aws")
 	logger.Infof("starting machines")
-	awsClient, err := getAWSClient(logger, cd, c)
+	awsClient, err := a.awsClientFn(logger, cd, c)
 	if err != nil {
 		return err
 	}
@@ -81,7 +83,7 @@ func (a *awsActuator) StartMachines(logger log.FieldLogger, cd *hivev1.ClusterDe
 func (a *awsActuator) MachinesRunning(logger log.FieldLogger, cd *hivev1.ClusterDeployment, c client.Client) (bool, error) {
 	logger = logger.WithField("cloud", "aws")
 	logger.Infof("checking whether machines are running")
-	awsClient, err := getAWSClient(logger, cd, c)
+	awsClient, err := a.awsClientFn(logger, cd, c)
 	if err != nil {
 		return false, err
 	}
@@ -97,7 +99,7 @@ func (a *awsActuator) MachinesRunning(logger log.FieldLogger, cd *hivev1.Cluster
 func (a *awsActuator) MachinesStopped(logger log.FieldLogger, cd *hivev1.ClusterDeployment, c client.Client) (bool, error) {
 	logger = logger.WithField("cloud", "aws")
 	logger.Infof("checking whether machines are stopped")
-	awsClient, err := getAWSClient(logger, cd, c)
+	awsClient, err := a.awsClientFn(logger, cd, c)
 	if err != nil {
 		return false, err
 	}

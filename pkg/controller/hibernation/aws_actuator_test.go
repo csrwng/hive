@@ -1,0 +1,147 @@
+package hibernation
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/golang/mock/gomock"
+	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+
+	"k8s.io/apimachinery/pkg/util/sets"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	hivev1 "github.com/openshift/hive/pkg/apis/hive/v1"
+	hivev1aws "github.com/openshift/hive/pkg/apis/hive/v1/aws"
+	"github.com/openshift/hive/pkg/awsclient"
+	mockawsclient "github.com/openshift/hive/pkg/awsclient/mock"
+	testcd "github.com/openshift/hive/pkg/test/clusterdeployment"
+)
+
+func TestCanHandle(t *testing.T) {
+	cd := testcd.BasicBuilder().Options(func(cd *hivev1.ClusterDeployment) {
+		cd.Spec.Platform.AWS = &hivev1aws.Platform{}
+	}).Build()
+	actuator := awsActuator{}
+	assert.True(t, actuator.CanHandle(cd))
+
+	cd = testcd.BasicBuilder().Build()
+	assert.False(t, actuator.CanHandle(cd))
+}
+
+func TestStopAndStartMachines(t *testing.T) {
+	tests := []struct {
+		name        string
+		testFunc    string
+		instances   map[string]int
+		setupClient func(*testing.T, *mockawsclient.MockClient)
+	}{
+		{
+			name:      "stop no running instances",
+			testFunc:  "StopMachines",
+			instances: map[string]int{"terminated": 2, "stopping": 2, "stopped": 1},
+		},
+		{
+			name:      "stop running instances",
+			testFunc:  "StopMachines",
+			instances: map[string]int{"terminated": 2, "running": 2},
+			setupClient: func(t *testing.T, c *mockawsclient.MockClient) {
+				c.EXPECT().StopInstances(gomock.Any()).Do(
+					func(input *ec2.StopInstancesInput) {
+						matchInstanceIDs(t, input.InstanceIds, map[string]int{"running": 2})
+					}).Return(nil, nil)
+			},
+		},
+		{
+			name:      "stop pending and running instances",
+			testFunc:  "StopMachines",
+			instances: map[string]int{"terminated": 5, "shutting-down": 3, "stopped": 4, "pending": 1, "running": 3},
+			setupClient: func(t *testing.T, c *mockawsclient.MockClient) {
+				c.EXPECT().StopInstances(gomock.Any()).Do(
+					func(input *ec2.StopInstancesInput) {
+						matchInstanceIDs(t, input.InstanceIds, map[string]int{"pending": 1, "running": 3})
+					}).Return(nil, nil)
+			},
+		},
+		{
+			name:      "start no stopped instances",
+			testFunc:  "StartMachines",
+			instances: map[string]int{"terminated": 3, "pending": 4, "running": 3},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			awsClient := mockawsclient.NewMockClient(ctrl)
+			setupClientInstances(awsClient, test.instances)
+			if test.setupClient != nil {
+				test.setupClient(t, awsClient)
+			}
+			actuator := testAWSActuator(awsClient)
+			var err error
+			switch test.testFunc {
+			case "StopMachines":
+				err = actuator.StopMachines(log.New(), testClusterDeployment(), nil)
+			case "StartMachines":
+				err = actuator.StartMachines(log.New(), testClusterDeployment(), nil)
+			default:
+				t.Fatal("Invalid function to test")
+			}
+			assert.Nil(t, err)
+		})
+	}
+}
+
+func matchInstanceIDs(t *testing.T, actual []*string, states map[string]int) {
+	expected := sets.NewString()
+	for state, count := range states {
+		for i := 0; i < count; i++ {
+			expected.Insert(fmt.Sprintf("%s-%d", state, i))
+		}
+	}
+	actualSet := sets.NewString()
+	for _, a := range actual {
+		actualSet.Insert(aws.StringValue(a))
+	}
+	assert.True(t, expected.Equal(actualSet), "Unexpected set of instance IDs: %v", actualSet.List())
+}
+
+func testAWSActuator(awsClient awsclient.Client) *awsActuator {
+	return &awsActuator{
+		awsClientFn: func(log.FieldLogger, *hivev1.ClusterDeployment, client.Client) (awsclient.Client, error) {
+			return awsClient, nil
+		},
+	}
+}
+
+func testClusterDeployment() *hivev1.ClusterDeployment {
+	return testcd.BasicBuilder().Options(func(cd *hivev1.ClusterDeployment) {
+		cd.Spec.ClusterMetadata = &hivev1.ClusterMetadata{
+			InfraID: "abcd1234",
+		}
+	}).Build()
+}
+
+func setupClientInstances(awsClient *mockawsclient.MockClient, states map[string]int) {
+	instances := []*ec2.Instance{}
+	for state, count := range states {
+		for i := 0; i < count; i++ {
+			instances = append(instances, &ec2.Instance{
+				InstanceId: aws.String(fmt.Sprintf("%s-%d", state, i)),
+				State: &ec2.InstanceState{
+					Name: aws.String(state),
+				},
+			})
+		}
+	}
+	reservation := &ec2.Reservation{Instances: instances}
+	reservations := []*ec2.Reservation{reservation}
+	awsClient.EXPECT().DescribeInstances(gomock.Any()).Times(1).Return(
+		&ec2.DescribeInstancesOutput{
+			Reservations: reservations,
+		},
+		nil)
+}

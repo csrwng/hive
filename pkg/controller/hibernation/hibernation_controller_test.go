@@ -45,9 +45,7 @@ func TestReconcile(t *testing.T) {
 	hivev1.AddToScheme(scheme)
 	machineapi.AddToScheme(scheme)
 
-	cdBuilder := testcd.FullBuilder(namespace, cdName, scheme).GenericOptions(
-		testgeneric.WithFinalizer(hivev1.FinalizerDeprovision),
-	).Options(
+	cdBuilder := testcd.FullBuilder(namespace, cdName, scheme).Options(
 		func(cd *hivev1.ClusterDeployment) {
 			cd.Spec.Installed = true
 			cd.Status.ClusterVersionStatus = &configv1.ClusterVersionStatus{
@@ -55,11 +53,6 @@ func TestReconcile(t *testing.T) {
 					Version: "4.4.9",
 				},
 			}
-			cd.Status.Conditions = append(cd.Status.Conditions, hivev1.ClusterDeploymentCondition{
-				Type:   hivev1.UnreachableCondition,
-				Status: corev1.ConditionFalse,
-				Reason: "Reachable",
-			})
 		},
 	)
 	o := clusterDeploymentOptions{}

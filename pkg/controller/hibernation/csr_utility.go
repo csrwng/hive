@@ -2,17 +2,11 @@ package hibernation
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"net"
-	"net/url"
 	"reflect"
-	"sort"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/openshift/cluster-api/pkg/apis/machine/v1beta1"
 	certificatesv1beta1 "k8s.io/api/certificates/v1beta1"
@@ -102,11 +96,9 @@ func (u *csrUtility) Approve(client kubeclient.Interface, csr *certificatesv1bet
 // The only information contained in the CSR is the future name of the node.  Thus we perform a best effort check:
 //
 // 1. User is the node bootstrapper
-// 2. Node does not exist
+// 2. Node exists
 // 3. Use machine API internal DNS to locate matching machine based on node name
-// 4. Machine must not have a node ref
-// 5. CSR creation timestamp is very close to machine creation timestamp
-// 6. CSR is meant for node client auth based on usage, CN, etc
+// 4. CSR is meant for node client auth based on usage, CN, etc
 //
 // For server certificates:
 // Names contained in the CSR are checked against addresses in the corresponding node's machine status.
@@ -272,46 +264,6 @@ func authorizeNodeClientCSR(machines []v1beta1.Machine, client kubeclient.Interf
 	return nil // approve node client cert
 }
 
-// authorizeServingRenewal will authorize the renewal of a kubelet's serving
-// certificate.
-//
-// The current certificate must be signed by the current CA and not expired.
-// The common name on the current certificate must match the expected value.
-// All Subject Alternate Name values must match between CSR and current cert.
-func authorizeServingRenewal(nodeName string, csr *x509.CertificateRequest, currentCert *x509.Certificate, ca *x509.CertPool) error {
-	if csr == nil || currentCert == nil || ca == nil {
-		return fmt.Errorf("CSR, serving cert, or CA not provided")
-	}
-
-	// Check that the serving cert is signed by the given CA, is not expired,
-	// and is otherwise valid.
-	if _, err := currentCert.Verify(x509.VerifyOptions{Roots: ca}); err != nil {
-		return err
-	}
-
-	// Check that the CN is correct on the current cert.
-	if currentCert.Subject.CommonName != fmt.Sprintf("%s:%s", nodeUser, nodeName) {
-		return fmt.Errorf("current serving cert has bad common name")
-	}
-
-	// Check that the CN matches on the CSR and current cert.
-	if currentCert.Subject.CommonName != csr.Subject.CommonName {
-		return fmt.Errorf("current serving cert and CSR common name mismatch")
-	}
-
-	// Check that all Subject Alternate Name values are equal.
-	match := equalStrings(currentCert.DNSNames, csr.DNSNames) &&
-		equalStrings(currentCert.EmailAddresses, csr.EmailAddresses) &&
-		equalIPAddresses(currentCert.IPAddresses, csr.IPAddresses) &&
-		equalURLs(currentCert.URIs, csr.URIs)
-
-	if !match {
-		return fmt.Errorf("CSR Subject Alternate Name values do not match current certificate")
-	}
-
-	return nil
-}
-
 func isReqFromNodeBootstrapper(req *certificatesv1beta1.CertificateSigningRequest) bool {
 	groups := sets.NewString(req.Spec.Groups...)
 	return req.Spec.Username == nodeBootstrapperUsername &&
@@ -337,138 +289,6 @@ func findMatchingMachineFromInternalDNS(nodeName string, machines []v1beta1.Mach
 		}
 	}
 	return v1beta1.Machine{}, false
-}
-
-// getServingCert fetches the node by the given name and attempts to connect to
-// its kubelet on the first advertised address.
-//
-// If successful, and the returned TLS certificate is validated against the
-// given CA, the node's serving certificate as presented over the established
-// connection is returned.
-func getServingCert(client kubeclient.Interface, nodeName string, ca *x509.CertPool) (*x509.Certificate, error) {
-	if ca == nil {
-		return nil, fmt.Errorf("no CA found: will not retrieve serving cert")
-	}
-
-	node, err := client.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	host, err := nodeInternalIP(node)
-	if err != nil {
-		return nil, err
-	}
-
-	port := strconv.Itoa(int(node.Status.DaemonEndpoints.KubeletEndpoint.Port))
-
-	kubelet := net.JoinHostPort(host, port)
-	dialer := &net.Dialer{Timeout: 30 * time.Second}
-	tlsConfig := &tls.Config{
-		RootCAs:    ca,
-		ServerName: host,
-	}
-
-	klog.Infof("retrieving serving cert from %s (%s)", nodeName, kubelet)
-
-	conn, err := tls.DialWithDialer(dialer, "tcp", kubelet, tlsConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	defer conn.Close()
-
-	cert := conn.ConnectionState().PeerCertificates[0]
-
-	return cert, nil
-}
-
-// nodeInternalIP returns the first internal IP for the node.
-func nodeInternalIP(node *corev1.Node) (string, error) {
-	for _, address := range node.Status.Addresses {
-		if address.Type == corev1.NodeInternalIP {
-			return address.Address, nil
-		}
-	}
-
-	return "", fmt.Errorf("node %s has no internal addresses", node.Name)
-}
-
-// equalStrings tests whether two slices of strings are equal.
-func equalStrings(a, b []string) bool {
-	aCopy := make([]string, len(a))
-	bCopy := make([]string, len(b))
-
-	copy(aCopy, a)
-	copy(bCopy, b)
-
-	sort.Strings(aCopy)
-	sort.Strings(bCopy)
-
-	return reflect.DeepEqual(aCopy, bCopy)
-}
-
-// equalURLs tests whether the string representations of two slices of URLs
-// are equal.
-func equalURLs(a, b []*url.URL) bool {
-	var aStrings, bStrings []string
-
-	if len(a) != len(b) {
-		return false
-	}
-
-	for i := range a {
-		aStrings = append(aStrings, a[i].String())
-		bStrings = append(bStrings, b[i].String())
-	}
-
-	sort.Strings(aStrings)
-	sort.Strings(bStrings)
-
-	return reflect.DeepEqual(aStrings, bStrings)
-}
-
-// equalIPAddresses tests whether the string representations of two slices of IP
-// Addresses are equal.
-func equalIPAddresses(a, b []net.IP) bool {
-	var aStrings, bStrings []string
-
-	if len(a) != len(b) {
-		return false
-	}
-
-	for i := range a {
-		aStrings = append(aStrings, a[i].String())
-		bStrings = append(bStrings, b[i].String())
-	}
-
-	sort.Strings(aStrings)
-	sort.Strings(bStrings)
-
-	return reflect.DeepEqual(aStrings, bStrings)
-}
-
-// csrSANs returns the Subject Alternative Name values for the given
-// certificate request as a slice of strings.
-func csrSANs(csr *x509.CertificateRequest) []string {
-	sans := []string{}
-
-	if csr == nil {
-		return sans
-	}
-
-	sans = append(sans, csr.DNSNames...)
-	sans = append(sans, csr.EmailAddresses...)
-
-	for _, ip := range csr.IPAddresses {
-		sans = append(sans, ip.String())
-	}
-
-	for _, uri := range csr.URIs {
-		sans = append(sans, uri.String())
-	}
-
-	return sans
 }
 
 func keyUsageSliceToStringSlice(usages []certificatesv1beta1.KeyUsage) []string {
