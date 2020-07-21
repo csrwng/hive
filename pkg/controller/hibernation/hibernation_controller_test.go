@@ -3,16 +3,15 @@ package hibernation
 import (
 	"context"
 	"fmt"
-	// "reflect"
 	"testing"
 
 	"github.com/golang/mock/gomock"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	// metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	batchv1 "k8s.io/api/batch/v1"
+	certsv1beta1 "k8s.io/api/certificates/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -24,21 +23,11 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	machineapi "github.com/openshift/cluster-api/pkg/apis/machine/v1beta1"
 	hivev1 "github.com/openshift/hive/pkg/apis/hive/v1"
-	// "github.com/openshift/hive/pkg/constants"
-	// controllerutils "github.com/openshift/hive/pkg/controller/utils"
+	"github.com/openshift/hive/pkg/controller/hibernation/mock"
 	"github.com/openshift/hive/pkg/remoteclient"
 	remoteclientmock "github.com/openshift/hive/pkg/remoteclient/mock"
 	testcd "github.com/openshift/hive/pkg/test/clusterdeployment"
-	// testcm "github.com/openshift/hive/pkg/test/configmap"
-	// testdnszone "github.com/openshift/hive/pkg/test/dnszone"
 	testgeneric "github.com/openshift/hive/pkg/test/generic"
-	// testjob "github.com/openshift/hive/pkg/test/job"
-	// testmp "github.com/openshift/hive/pkg/test/machinepool"
-	// testnamespace "github.com/openshift/hive/pkg/test/namespace"
-	// testsecret "github.com/openshift/hive/pkg/test/secret"
-	// testsip "github.com/openshift/hive/pkg/test/syncidentityprovider"
-	// testss "github.com/openshift/hive/pkg/test/syncset"
-	"github.com/openshift/hive/pkg/controller/hibernation/mock"
 )
 
 const (
@@ -76,11 +65,12 @@ func TestReconcile(t *testing.T) {
 	o := clusterDeploymentOptions{}
 
 	tests := []struct {
-		name          string
-		cd            *hivev1.ClusterDeployment
-		setupActuator func(actuator *mock.MockHibernationActuator)
-		setupRemote   func(builder *remoteclientmock.MockBuilder)
-		validate      func(t *testing.T, cd *hivev1.ClusterDeployment)
+		name           string
+		cd             *hivev1.ClusterDeployment
+		setupActuator  func(actuator *mock.MockHibernationActuator)
+		setupCSRHelper func(helper *mock.MockcsrHelper)
+		setupRemote    func(builder *remoteclientmock.MockBuilder)
+		validate       func(t *testing.T, cd *hivev1.ClusterDeployment)
 	}{
 		{
 			name: "cluster deleted",
@@ -96,6 +86,16 @@ func TestReconcile(t *testing.T) {
 			cd:   cdBuilder.Options(o.notInstalled, o.shouldHibernate).Build(),
 			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
 				require.Nil(t, getHibernatingCondition(cd))
+			},
+		},
+		{
+			name: "start hibernating, older version",
+			cd:   cdBuilder.Options(o.shouldHibernate, o.olderVersion).Build(),
+			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
+				cond := getHibernatingCondition(cd)
+				require.NotNil(t, cond)
+				assert.Equal(t, corev1.ConditionFalse, cond.Status)
+				assert.Equal(t, hivev1.UnsupportedHibernationReason, cond.Reason)
 			},
 		},
 		{
@@ -189,7 +189,7 @@ func TestReconcile(t *testing.T) {
 			setupRemote: func(builder *remoteclientmock.MockBuilder) {
 				fakeClient := fake.NewFakeClientWithScheme(scheme, unreadyNode()...)
 				fakeKubeClient := fakekubeclient.NewSimpleClientset()
-				builder.EXPECT().Build().Times(2).Return(fakeClient, nil)
+				builder.EXPECT().Build().Times(1).Return(fakeClient, nil)
 				builder.EXPECT().BuildKubeClient().Times(1).Return(fakeKubeClient, nil)
 			},
 			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
@@ -207,9 +207,16 @@ func TestReconcile(t *testing.T) {
 			},
 			setupRemote: func(builder *remoteclientmock.MockBuilder) {
 				fakeClient := fake.NewFakeClientWithScheme(scheme, unreadyNode()...)
-				fakeKubeClient := fakekubeclient.NewSimpleClientset()
-				builder.EXPECT().Build().Times(2).Return(fakeClient, nil)
+				fakeKubeClient := fakekubeclient.NewSimpleClientset(csrs()...)
+				builder.EXPECT().Build().Times(1).Return(fakeClient, nil)
 				builder.EXPECT().BuildKubeClient().Times(1).Return(fakeKubeClient, nil)
+			},
+			setupCSRHelper: func(helper *mock.MockcsrHelper) {
+				count := len(csrs())
+				helper.EXPECT().IsApproved(gomock.Any()).Times(count).Return(false)
+				helper.EXPECT().Parse(gomock.Any()).Times(count).Return(nil, nil)
+				helper.EXPECT().Authorize(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(count).Return(nil)
+				helper.EXPECT().Approve(gomock.Any(), gomock.Any()).Times(count).Return(nil)
 			},
 			validate: func(t *testing.T, cd *hivev1.ClusterDeployment) {
 				cond := getHibernatingCondition(cd)
@@ -220,7 +227,7 @@ func TestReconcile(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests[len(tests)-1:] {
+	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			mockActuator := mock.NewMockHibernationActuator(ctrl)
@@ -232,6 +239,10 @@ func TestReconcile(t *testing.T) {
 			if test.setupRemote != nil {
 				test.setupRemote(mockBuilder)
 			}
+			mockCSRHelper := mock.NewMockcsrHelper(ctrl)
+			if test.setupCSRHelper != nil {
+				test.setupCSRHelper(mockCSRHelper)
+			}
 			actuators = []HibernationActuator{mockActuator}
 			c := fake.NewFakeClientWithScheme(scheme, test.cd)
 
@@ -242,6 +253,7 @@ func TestReconcile(t *testing.T) {
 				remoteClientBuilder: func(cd *hivev1.ClusterDeployment) remoteclient.Builder {
 					return mockBuilder
 				},
+				csrUtil: mockCSRHelper,
 			}
 			_, err := reconciler.Reconcile(reconcile.Request{
 				NamespacedName: types.NamespacedName{Namespace: namespace, Name: cdName},
@@ -266,6 +278,14 @@ func (*clusterDeploymentOptions) notInstalled(cd *hivev1.ClusterDeployment) {
 }
 func (*clusterDeploymentOptions) shouldHibernate(cd *hivev1.ClusterDeployment) {
 	cd.Spec.PowerState = hivev1.HibernatingClusterPowerState
+}
+func (*clusterDeploymentOptions) olderVersion(cd *hivev1.ClusterDeployment) {
+	cd.Status.ClusterVersionStatus = &configv1.ClusterVersionStatus{
+		Desired: configv1.Update{
+			Version: "4.3.11",
+		},
+	}
+
 }
 func (*clusterDeploymentOptions) stopping(cd *hivev1.ClusterDeployment) {
 	cd.Status.Conditions = append(cd.Status.Conditions, hivev1.ClusterDeploymentCondition{
@@ -324,4 +344,14 @@ func unreadyNode() []runtime.Object {
 		},
 	}
 	return append(readyNodes(), node)
+}
+
+func csrs() []runtime.Object {
+	result := make([]runtime.Object, 5)
+	for i := 0; i < len(result); i++ {
+		csr := &certsv1beta1.CertificateSigningRequest{}
+		csr.Name = fmt.Sprintf("csr-%d", i)
+		result[i] = csr
+	}
+	return result
 }

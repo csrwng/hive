@@ -224,12 +224,6 @@ func (r *hibernationReconciler) startMachines(logger log.FieldLogger, cd *hivev1
 	if err := actuator.StartMachines(logger, cd, r.Client); err != nil {
 		return reconcile.Result{}, err
 	}
-	return r.setResumingCondition(logger, cd)
-}
-
-func (r *hibernationReconciler) setResumingCondition(logger log.FieldLogger, cd *hivev1.ClusterDeployment) (reconcile.Result, error) {
-	// For the resuming condition, we want to update always so that the unreachable controller can
-	// queue the cluster deployment to check whether the cluster is reachable.
 	oldStatus := cd.Status.DeepCopy()
 	cd.Status.Conditions = controllerutils.SetClusterDeploymentCondition(
 		cd.Status.Conditions,
@@ -237,10 +231,10 @@ func (r *hibernationReconciler) setResumingCondition(logger log.FieldLogger, cd 
 		corev1.ConditionTrue,
 		hivev1.ResumingHibernationReason,
 		"Starting cluster machines",
-		controllerutils.UpdateConditionAlways)
+		controllerutils.UpdateConditionIfReasonOrMessageChange)
 	if !equality.Semantic.DeepEqual(oldStatus, cd.Status) {
 		if err := r.Status().Update(context.TODO(), cd); err != nil {
-			logger.Error("Failed to update status: %v", err)
+			logger.WithError(err).Error("Failed to update status")
 			return reconcile.Result{}, errors.Wrap(err, "failed to update status")
 		}
 	}
@@ -320,18 +314,19 @@ func (r *hibernationReconciler) checkClusterResumed(logger log.FieldLogger, cd *
 	if !running {
 		return reconcile.Result{RequeueAfter: stateCheckInterval}, nil
 	}
-	ready, unreachable, err := r.nodesReady(logger, cd)
+	remoteClient, err := r.remoteClientBuilder(cd).Build()
+	if err != nil {
+		logger.WithError(err).Error("Failed to connect to target cluster")
+		return reconcile.Result{}, err
+	}
+	ready, err := r.nodesReady(logger, cd, remoteClient)
 	if err != nil {
 		logger.WithError(err).Error("Failed to check whether nodes are ready")
 		return reconcile.Result{}, err
 	}
-	if unreachable {
-		logger.Debug("Cluster is still not reachable, waiting")
-		return r.setResumingCondition(logger, cd)
-	}
 	if !ready {
 		logger.Info("Nodes are not ready, checking for CSRs to approve")
-		return r.checkCSRs(logger, cd)
+		return r.checkCSRs(logger, cd, remoteClient)
 	}
 	oldStatus := cd.Status.DeepCopy()
 	cd.Status.Conditions = controllerutils.SetClusterDeploymentCondition(
@@ -377,83 +372,44 @@ func (r *hibernationReconciler) canHibernate(cd *hivev1.ClusterDeployment) (bool
 	return true, ""
 }
 
-func (r *hibernationReconciler) nodesReady(logger log.FieldLogger, cd *hivev1.ClusterDeployment) (ready bool, isUnreachable bool, err error) {
-	remoteClient, unreachable, requeue := remoteclient.ConnectToRemoteCluster(
-		cd,
-		r.remoteClientBuilder(cd),
-		r.Client,
-		logger,
-	)
-	if requeue {
-		logger.Error("Failed to get client to target cluster")
-		err = fmt.Errorf("failed to get client to target cluster")
-		return
-	}
-	if unreachable {
-		logger.Debug("Cluster is still unreachable while checking for nodes ready, waiting")
-		isUnreachable = true
-		return
-	}
+func (r *hibernationReconciler) nodesReady(logger log.FieldLogger, cd *hivev1.ClusterDeployment, remoteClient client.Client) (bool, error) {
 	nodeList := &corev1.NodeList{}
-	err = remoteClient.List(context.TODO(), nodeList)
+	err := remoteClient.List(context.TODO(), nodeList)
 	if err != nil {
 		logger.WithError(err).Error("Failed to fetch cluster nodes")
 		err = errors.Wrap(err, "failed to fetch cluster nodes")
-		return
+		return false, err
 	}
 	if len(nodeList.Items) == 0 {
 		logger.Info("Cluster is not reporting any nodes, waiting")
-		return
+		return false, nil
 	}
 	for i := range nodeList.Items {
 		if !isNodeReady(&nodeList.Items[i]) {
 			logger.WithField("node", nodeList.Items[i].Name).Info("Node is not yet ready, waiting")
-			return
+			return false, nil
 		}
 	}
 	logger.WithField("count", len(nodeList.Items)).Info("All cluster nodes are ready")
-	ready = true
-	return
+	return true, nil
 }
 
-func (r *hibernationReconciler) checkCSRs(logger log.FieldLogger, cd *hivev1.ClusterDeployment) (reconcile.Result, error) {
-	kubeClient, unreachable, requeue := remoteclient.ConnectToRemoteClusterWithKubeClient(
-		cd,
-		r.remoteClientBuilder(cd),
-		r.Client,
-		logger,
-	)
-	if requeue {
+func (r *hibernationReconciler) checkCSRs(logger log.FieldLogger, cd *hivev1.ClusterDeployment, remoteClient client.Client) (reconcile.Result, error) {
+	kubeClient, err := r.remoteClientBuilder(cd).BuildKubeClient()
+	if err != nil {
 		logger.Error("Failed to get kube client to target cluster")
 		return reconcile.Result{}, errors.New("failed to get kube client to target cluster")
 	}
-	if unreachable {
-		logger.Info("Cluster is still not reachable while checking CSRs, wating")
-		return r.setResumingCondition(logger, cd)
+	if err != nil {
+		logger.Error("Failed to get kube client to target cluster")
+		return reconcile.Result{}, errors.New("failed to get kube client to target cluster")
 	}
-
-	genericClient, unreachable, requeue := remoteclient.ConnectToRemoteCluster(
-		cd,
-		r.remoteClientBuilder(cd),
-		r.Client,
-		logger,
-	)
-	if requeue {
-		logger.Error("failed to get client to target cluster")
-		return reconcile.Result{}, errors.New("failed to get client to target cluster")
-	}
-	if unreachable {
-		logger.Info("Cluster is still not reachable while checking CSRs, wating")
-		return r.setResumingCondition(logger, cd)
-	}
-
 	machineList := &machineapi.MachineList{}
-	err := genericClient.List(context.TODO(), machineList)
+	err = remoteClient.List(context.TODO(), machineList)
 	if err != nil {
 		logger.WithError(err).Error("failed to list machines")
 		return reconcile.Result{}, errors.Wrap(err, "failed to list machines")
 	}
-
 	csrList, err := kubeClient.CertificatesV1beta1().CertificateSigningRequests().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		logger.WithError(err).Error("failed to list CSRs")
