@@ -39,7 +39,13 @@ const (
 
 	// csrCheckInterval is the time interval for polling
 	// pending CSRs
-	csrCheckInterval = 20 * time.Second
+	csrCheckInterval = 30 * time.Second
+
+	// nodeCheckWaitTime is the minimum time to wait for a node
+	// ready check after a cluster started resuming. This is to
+	// avoid a false positive when the node status is checked too
+	// soon after the cluster is ready
+	nodeCheckWaitTime = 2 * time.Minute
 
 	// Namespace on target cluster that contains the Kubelet CA
 	configNamespace = "openshift-config-managed"
@@ -373,6 +379,14 @@ func (r *hibernationReconciler) canHibernate(cd *hivev1.ClusterDeployment) (bool
 }
 
 func (r *hibernationReconciler) nodesReady(logger log.FieldLogger, cd *hivev1.ClusterDeployment, remoteClient client.Client) (bool, error) {
+
+	hibernatingCondition := controllerutils.FindClusterDeploymentCondition(cd.Status.Conditions, hivev1.ClusterHibernatingCondition)
+	if hibernatingCondition == nil {
+		return false, errors.New("cannot find hibernating condition")
+	}
+	if time.Since(hibernatingCondition.LastProbeTime.Time) < nodeCheckWaitTime {
+		return false, nil
+	}
 	nodeList := &corev1.NodeList{}
 	err := remoteClient.List(context.TODO(), nodeList)
 	if err != nil {

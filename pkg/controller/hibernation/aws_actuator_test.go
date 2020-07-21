@@ -70,6 +70,28 @@ func TestStopAndStartMachines(t *testing.T) {
 			testFunc:  "StartMachines",
 			instances: map[string]int{"terminated": 3, "pending": 4, "running": 3},
 		},
+		{
+			name:      "start stopped instances",
+			testFunc:  "StartMachines",
+			instances: map[string]int{"stopped": 3, "terminated": 2, "running": 3},
+			setupClient: func(t *testing.T, c *mockawsclient.MockClient) {
+				c.EXPECT().StartInstances(gomock.Any()).Do(
+					func(input *ec2.StartInstancesInput) {
+						matchInstanceIDs(t, input.InstanceIds, map[string]int{"stopped": 3})
+					}).Return(nil, nil)
+			},
+		},
+		{
+			name:      "start stopped and stopping instances",
+			testFunc:  "StartMachines",
+			instances: map[string]int{"stopped": 3, "stopping": 1, "terminated": 3},
+			setupClient: func(t *testing.T, c *mockawsclient.MockClient) {
+				c.EXPECT().StartInstances(gomock.Any()).Do(
+					func(input *ec2.StartInstancesInput) {
+						matchInstanceIDs(t, input.InstanceIds, map[string]int{"stopped": 3, "stopping": 1})
+					}).Return(nil, nil)
+			},
+		},
 	}
 
 	for _, test := range tests {
