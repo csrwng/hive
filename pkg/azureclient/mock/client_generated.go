@@ -139,6 +139,66 @@ func (mr *MockClientMockRecorder) DeleteRecordSet(ctx, resourceGroupName, zone, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRecordSet", reflect.TypeOf((*MockClient)(nil).DeleteRecordSet), ctx, resourceGroupName, zone, recordSetName, recordType)
 }
 
+// ListVirtualMachines mocks base method
+func (m *MockClient) ListVirtualMachines(ctx context.Context, resourceGroupName string) (compute.VirtualMachineListResultPage, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListVirtualMachines", ctx, resourceGroupName)
+	ret0, _ := ret[0].(compute.VirtualMachineListResultPage)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListVirtualMachines indicates an expected call of ListVirtualMachines
+func (mr *MockClientMockRecorder) ListVirtualMachines(ctx, resourceGroupName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListVirtualMachines", reflect.TypeOf((*MockClient)(nil).ListVirtualMachines), ctx, resourceGroupName)
+}
+
+// VirtualMachineInstanceView mocks base method
+func (m *MockClient) VirtualMachineInstanceView(ctx context.Context, resourceGroupName, machineName string) (compute.VirtualMachineInstanceView, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "VirtualMachineInstanceView", ctx, resourceGroupName, machineName)
+	ret0, _ := ret[0].(compute.VirtualMachineInstanceView)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// VirtualMachineInstanceView indicates an expected call of VirtualMachineInstanceView
+func (mr *MockClientMockRecorder) VirtualMachineInstanceView(ctx, resourceGroupName, machineName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "VirtualMachineInstanceView", reflect.TypeOf((*MockClient)(nil).VirtualMachineInstanceView), ctx, resourceGroupName, machineName)
+}
+
+// DeallocateVirtualMachine mocks base method
+func (m *MockClient) DeallocateVirtualMachine(ctx context.Context, resourceGroup, name string) (compute.VirtualMachinesDeallocateFuture, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeallocateVirtualMachine", ctx, resourceGroup, name)
+	ret0, _ := ret[0].(compute.VirtualMachinesDeallocateFuture)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeallocateVirtualMachine indicates an expected call of DeallocateVirtualMachine
+func (mr *MockClientMockRecorder) DeallocateVirtualMachine(ctx, resourceGroup, name interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeallocateVirtualMachine", reflect.TypeOf((*MockClient)(nil).DeallocateVirtualMachine), ctx, resourceGroup, name)
+}
+
+// StartVirtualMachine mocks base method
+func (m *MockClient) StartVirtualMachine(ctx context.Context, resourceGroup, name string) (compute.VirtualMachinesStartFuture, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StartVirtualMachine", ctx, resourceGroup, name)
+	ret0, _ := ret[0].(compute.VirtualMachinesStartFuture)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// StartVirtualMachine indicates an expected call of StartVirtualMachine
+func (mr *MockClientMockRecorder) StartVirtualMachine(ctx, resourceGroup, name interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartVirtualMachine", reflect.TypeOf((*MockClient)(nil).StartVirtualMachine), ctx, resourceGroup, name)
+}
+
 // MockResourceSKUsPage is a mock of ResourceSKUsPage interface
 type MockResourceSKUsPage struct {
 	ctrl     *gomock.Controller

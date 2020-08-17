@@ -31,6 +31,12 @@ type Client interface {
 	ListRecordSetsByZone(ctx context.Context, resourceGroupName string, zone string, suffix string) (RecordSetPage, error)
 	CreateOrUpdateRecordSet(ctx context.Context, resourceGroupName string, zone string, recordSetName string, recordType dns.RecordType, recordSet dns.RecordSet) (dns.RecordSet, error)
 	DeleteRecordSet(ctx context.Context, resourceGroupName string, zone string, recordSetName string, recordType dns.RecordType) error
+
+	// Virtual Machines
+	ListVirtualMachines(ctx context.Context, resourceGroupName string) (compute.VirtualMachineListResultPage, error)
+	VirtualMachineInstanceView(ctx context.Context, resourceGroupName string, machineName string) (compute.VirtualMachineInstanceView, error)
+	DeallocateVirtualMachine(ctx context.Context, resourceGroup, name string) (compute.VirtualMachinesDeallocateFuture, error)
+	StartVirtualMachine(ctx context.Context, resourceGroup, name string) (compute.VirtualMachinesStartFuture, error)
 }
 
 // ResourceSKUsPage is a page of results from listing resource SKUs.
@@ -48,9 +54,10 @@ type RecordSetPage interface {
 }
 
 type azureClient struct {
-	resourceSKUsClient *compute.ResourceSkusClient
-	recordSetsClient   *dns.RecordSetsClient
-	zonesClient        *dns.ZonesClient
+	resourceSKUsClient    *compute.ResourceSkusClient
+	recordSetsClient      *dns.RecordSetsClient
+	zonesClient           *dns.ZonesClient
+	virtualMachinesClient *compute.VirtualMachinesClient
 }
 
 func (c *azureClient) ListResourceSKUs(ctx context.Context) (ResourceSKUsPage, error) {
@@ -92,6 +99,22 @@ func (c *azureClient) GetZone(ctx context.Context, resourceGroupName string, zon
 
 func (c *azureClient) CreateOrUpdateRecordSet(ctx context.Context, resourceGroupName string, zone string, recordSetName string, recordType dns.RecordType, recordSet dns.RecordSet) (dns.RecordSet, error) {
 	return c.recordSetsClient.CreateOrUpdate(ctx, resourceGroupName, zone, recordSetName, recordType, recordSet, "", "")
+}
+
+func (c *azureClient) ListVirtualMachines(ctx context.Context, resourceGroupName string) (compute.VirtualMachineListResultPage, error) {
+	return c.virtualMachinesClient.List(ctx, resourceGroupName)
+}
+
+func (c *azureClient) VirtualMachineInstanceView(ctx context.Context, resourceGroupName string, machineName string) (compute.VirtualMachineInstanceView, error) {
+	return c.virtualMachinesClient.InstanceView(ctx, resourceGroupName, machineName)
+}
+
+func (c *azureClient) DeallocateVirtualMachine(ctx context.Context, resourceGroup, name string) (compute.VirtualMachinesDeallocateFuture, error) {
+	return c.virtualMachinesClient.Deallocate(ctx, resourceGroup, name)
+}
+
+func (c *azureClient) StartVirtualMachine(ctx context.Context, resourceGroup, name string) (compute.VirtualMachinesStartFuture, error) {
+	return c.virtualMachinesClient.Start(ctx, resourceGroup, name)
 }
 
 // NewClientFromSecret creates our client wrapper object for interacting with Azure. The Azure creds are read from the
@@ -148,10 +171,14 @@ func newClient(authJSONSource func() ([]byte, error)) (*azureClient, error) {
 	zonesClient := dns.NewZonesClientWithBaseURI(azure.PublicCloud.ResourceManagerEndpoint, subscriptionID)
 	zonesClient.Authorizer = authorizer
 
+	virtualMachinesClient := compute.NewVirtualMachinesClientWithBaseURI(azure.PublicCloud.ResourceManagerEndpoint, subscriptionID)
+	virtualMachinesClient.Authorizer = authorizer
+
 	return &azureClient{
-		resourceSKUsClient: &resourceSKUsClient,
-		recordSetsClient:   &recordSetsClient,
-		zonesClient:        &zonesClient,
+		resourceSKUsClient:    &resourceSKUsClient,
+		recordSetsClient:      &recordSetsClient,
+		zonesClient:           &zonesClient,
+		virtualMachinesClient: &virtualMachinesClient,
 	}, nil
 }
 
