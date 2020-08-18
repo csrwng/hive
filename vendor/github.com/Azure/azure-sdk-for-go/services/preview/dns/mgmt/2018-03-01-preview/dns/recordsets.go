@@ -36,7 +36,8 @@ func NewRecordSetsClient(subscriptionID string) RecordSetsClient {
 	return NewRecordSetsClientWithBaseURI(DefaultBaseURI, subscriptionID)
 }
 
-// NewRecordSetsClientWithBaseURI creates an instance of the RecordSetsClient client.
+// NewRecordSetsClientWithBaseURI creates an instance of the RecordSetsClient client using a custom endpoint.  Use this
+// when interacting with an Azure cloud that uses a non-standard base URI (sovereign clouds, Azure stack).
 func NewRecordSetsClientWithBaseURI(baseURI string, subscriptionID string) RecordSetsClient {
 	return RecordSetsClient{NewWithBaseURI(baseURI, subscriptionID)}
 }
@@ -134,8 +135,7 @@ func (client RecordSetsClient) CreateOrUpdatePreparer(ctx context.Context, resou
 // CreateOrUpdateSender sends the CreateOrUpdate request. The method will close the
 // http.Response Body if it receives an error.
 func (client RecordSetsClient) CreateOrUpdateSender(req *http.Request) (*http.Response, error) {
-	sd := autorest.GetSendDecorators(req.Context(), azure.DoRetryWithRegistration(client.Client))
-	return autorest.SendWithSender(client, req, sd...)
+	return client.Send(req, azure.DoRetryWithRegistration(client.Client))
 }
 
 // CreateOrUpdateResponder handles the response to the CreateOrUpdate request. The method always
@@ -143,7 +143,6 @@ func (client RecordSetsClient) CreateOrUpdateSender(req *http.Request) (*http.Re
 func (client RecordSetsClient) CreateOrUpdateResponder(resp *http.Response) (result RecordSet, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK, http.StatusCreated),
 		autorest.ByUnmarshallingJSON(&result),
 		autorest.ByClosing())
@@ -232,8 +231,7 @@ func (client RecordSetsClient) DeletePreparer(ctx context.Context, resourceGroup
 // DeleteSender sends the Delete request. The method will close the
 // http.Response Body if it receives an error.
 func (client RecordSetsClient) DeleteSender(req *http.Request) (*http.Response, error) {
-	sd := autorest.GetSendDecorators(req.Context(), azure.DoRetryWithRegistration(client.Client))
-	return autorest.SendWithSender(client, req, sd...)
+	return client.Send(req, azure.DoRetryWithRegistration(client.Client))
 }
 
 // DeleteResponder handles the response to the Delete request. The method always
@@ -241,7 +239,6 @@ func (client RecordSetsClient) DeleteSender(req *http.Request) (*http.Response, 
 func (client RecordSetsClient) DeleteResponder(resp *http.Response) (result autorest.Response, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK, http.StatusNoContent),
 		autorest.ByClosing())
 	result.Response = resp
@@ -322,8 +319,7 @@ func (client RecordSetsClient) GetPreparer(ctx context.Context, resourceGroupNam
 // GetSender sends the Get request. The method will close the
 // http.Response Body if it receives an error.
 func (client RecordSetsClient) GetSender(req *http.Request) (*http.Response, error) {
-	sd := autorest.GetSendDecorators(req.Context(), azure.DoRetryWithRegistration(client.Client))
-	return autorest.SendWithSender(client, req, sd...)
+	return client.Send(req, azure.DoRetryWithRegistration(client.Client))
 }
 
 // GetResponder handles the response to the Get request. The method always
@@ -331,7 +327,6 @@ func (client RecordSetsClient) GetSender(req *http.Request) (*http.Response, err
 func (client RecordSetsClient) GetResponder(resp *http.Response) (result RecordSet, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK),
 		autorest.ByUnmarshallingJSON(&result),
 		autorest.ByClosing())
@@ -386,6 +381,9 @@ func (client RecordSetsClient) ListAllByDNSZone(ctx context.Context, resourceGro
 	if err != nil {
 		err = autorest.NewErrorWithError(err, "dns.RecordSetsClient", "ListAllByDNSZone", resp, "Failure responding to request")
 	}
+	if result.rslr.hasNextLink() && result.rslr.IsEmpty() {
+		err = result.NextWithContext(ctx)
+	}
 
 	return
 }
@@ -420,8 +418,7 @@ func (client RecordSetsClient) ListAllByDNSZonePreparer(ctx context.Context, res
 // ListAllByDNSZoneSender sends the ListAllByDNSZone request. The method will close the
 // http.Response Body if it receives an error.
 func (client RecordSetsClient) ListAllByDNSZoneSender(req *http.Request) (*http.Response, error) {
-	sd := autorest.GetSendDecorators(req.Context(), azure.DoRetryWithRegistration(client.Client))
-	return autorest.SendWithSender(client, req, sd...)
+	return client.Send(req, azure.DoRetryWithRegistration(client.Client))
 }
 
 // ListAllByDNSZoneResponder handles the response to the ListAllByDNSZone request. The method always
@@ -429,7 +426,6 @@ func (client RecordSetsClient) ListAllByDNSZoneSender(req *http.Request) (*http.
 func (client RecordSetsClient) ListAllByDNSZoneResponder(resp *http.Response) (result RecordSetListResult, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK),
 		autorest.ByUnmarshallingJSON(&result),
 		autorest.ByClosing())
@@ -521,6 +517,9 @@ func (client RecordSetsClient) ListByDNSZone(ctx context.Context, resourceGroupN
 	if err != nil {
 		err = autorest.NewErrorWithError(err, "dns.RecordSetsClient", "ListByDNSZone", resp, "Failure responding to request")
 	}
+	if result.rslr.hasNextLink() && result.rslr.IsEmpty() {
+		err = result.NextWithContext(ctx)
+	}
 
 	return
 }
@@ -555,8 +554,7 @@ func (client RecordSetsClient) ListByDNSZonePreparer(ctx context.Context, resour
 // ListByDNSZoneSender sends the ListByDNSZone request. The method will close the
 // http.Response Body if it receives an error.
 func (client RecordSetsClient) ListByDNSZoneSender(req *http.Request) (*http.Response, error) {
-	sd := autorest.GetSendDecorators(req.Context(), azure.DoRetryWithRegistration(client.Client))
-	return autorest.SendWithSender(client, req, sd...)
+	return client.Send(req, azure.DoRetryWithRegistration(client.Client))
 }
 
 // ListByDNSZoneResponder handles the response to the ListByDNSZone request. The method always
@@ -564,7 +562,6 @@ func (client RecordSetsClient) ListByDNSZoneSender(req *http.Request) (*http.Res
 func (client RecordSetsClient) ListByDNSZoneResponder(resp *http.Response) (result RecordSetListResult, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK),
 		autorest.ByUnmarshallingJSON(&result),
 		autorest.ByClosing())
@@ -657,6 +654,9 @@ func (client RecordSetsClient) ListByType(ctx context.Context, resourceGroupName
 	if err != nil {
 		err = autorest.NewErrorWithError(err, "dns.RecordSetsClient", "ListByType", resp, "Failure responding to request")
 	}
+	if result.rslr.hasNextLink() && result.rslr.IsEmpty() {
+		err = result.NextWithContext(ctx)
+	}
 
 	return
 }
@@ -692,8 +692,7 @@ func (client RecordSetsClient) ListByTypePreparer(ctx context.Context, resourceG
 // ListByTypeSender sends the ListByType request. The method will close the
 // http.Response Body if it receives an error.
 func (client RecordSetsClient) ListByTypeSender(req *http.Request) (*http.Response, error) {
-	sd := autorest.GetSendDecorators(req.Context(), azure.DoRetryWithRegistration(client.Client))
-	return autorest.SendWithSender(client, req, sd...)
+	return client.Send(req, azure.DoRetryWithRegistration(client.Client))
 }
 
 // ListByTypeResponder handles the response to the ListByType request. The method always
@@ -701,7 +700,6 @@ func (client RecordSetsClient) ListByTypeSender(req *http.Request) (*http.Respon
 func (client RecordSetsClient) ListByTypeResponder(resp *http.Response) (result RecordSetListResult, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK),
 		autorest.ByUnmarshallingJSON(&result),
 		autorest.ByClosing())
@@ -832,8 +830,7 @@ func (client RecordSetsClient) UpdatePreparer(ctx context.Context, resourceGroup
 // UpdateSender sends the Update request. The method will close the
 // http.Response Body if it receives an error.
 func (client RecordSetsClient) UpdateSender(req *http.Request) (*http.Response, error) {
-	sd := autorest.GetSendDecorators(req.Context(), azure.DoRetryWithRegistration(client.Client))
-	return autorest.SendWithSender(client, req, sd...)
+	return client.Send(req, azure.DoRetryWithRegistration(client.Client))
 }
 
 // UpdateResponder handles the response to the Update request. The method always
@@ -841,7 +838,6 @@ func (client RecordSetsClient) UpdateSender(req *http.Request) (*http.Response, 
 func (client RecordSetsClient) UpdateResponder(resp *http.Response) (result RecordSet, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK),
 		autorest.ByUnmarshallingJSON(&result),
 		autorest.ByClosing())

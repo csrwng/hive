@@ -36,7 +36,8 @@ func NewClient(subscriptionID string) Client {
 	return NewClientWithBaseURI(DefaultBaseURI, subscriptionID)
 }
 
-// NewClientWithBaseURI creates an instance of the Client client.
+// NewClientWithBaseURI creates an instance of the Client client using a custom endpoint.  Use this when interacting
+// with an Azure cloud that uses a non-standard base URI (sovereign clouds, Azure stack).
 func NewClientWithBaseURI(baseURI string, subscriptionID string) Client {
 	return Client{NewWithBaseURI(baseURI, subscriptionID)}
 }
@@ -116,8 +117,7 @@ func (client Client) CheckExistencePreparer(ctx context.Context, resourceGroupNa
 // CheckExistenceSender sends the CheckExistence request. The method will close the
 // http.Response Body if it receives an error.
 func (client Client) CheckExistenceSender(req *http.Request) (*http.Response, error) {
-	sd := autorest.GetSendDecorators(req.Context(), azure.DoRetryWithRegistration(client.Client))
-	return autorest.SendWithSender(client, req, sd...)
+	return client.Send(req, azure.DoRetryWithRegistration(client.Client))
 }
 
 // CheckExistenceResponder handles the response to the CheckExistence request. The method always
@@ -125,7 +125,6 @@ func (client Client) CheckExistenceSender(req *http.Request) (*http.Response, er
 func (client Client) CheckExistenceResponder(resp *http.Response) (result autorest.Response, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK, http.StatusNoContent, http.StatusNotFound),
 		autorest.ByClosing())
 	result.Response = resp
@@ -191,8 +190,7 @@ func (client Client) CheckExistenceByIDPreparer(ctx context.Context, resourceID 
 // CheckExistenceByIDSender sends the CheckExistenceByID request. The method will close the
 // http.Response Body if it receives an error.
 func (client Client) CheckExistenceByIDSender(req *http.Request) (*http.Response, error) {
-	sd := autorest.GetSendDecorators(req.Context(), autorest.DoRetryForStatusCodes(client.RetryAttempts, client.RetryDuration, autorest.StatusCodesForRetry...))
-	return autorest.SendWithSender(client, req, sd...)
+	return client.Send(req, autorest.DoRetryForStatusCodes(client.RetryAttempts, client.RetryDuration, autorest.StatusCodesForRetry...))
 }
 
 // CheckExistenceByIDResponder handles the response to the CheckExistenceByID request. The method always
@@ -200,7 +198,6 @@ func (client Client) CheckExistenceByIDSender(req *http.Request) (*http.Response
 func (client Client) CheckExistenceByIDResponder(resp *http.Response) (result autorest.Response, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK, http.StatusNoContent, http.StatusNotFound),
 		autorest.ByClosing())
 	result.Response = resp
@@ -281,9 +278,8 @@ func (client Client) CreateOrUpdatePreparer(ctx context.Context, resourceGroupNa
 // CreateOrUpdateSender sends the CreateOrUpdate request. The method will close the
 // http.Response Body if it receives an error.
 func (client Client) CreateOrUpdateSender(req *http.Request) (future CreateOrUpdateFuture, err error) {
-	sd := autorest.GetSendDecorators(req.Context(), azure.DoRetryWithRegistration(client.Client))
 	var resp *http.Response
-	resp, err = autorest.SendWithSender(client, req, sd...)
+	resp, err = client.Send(req, azure.DoRetryWithRegistration(client.Client))
 	if err != nil {
 		return
 	}
@@ -296,7 +292,6 @@ func (client Client) CreateOrUpdateSender(req *http.Request) (future CreateOrUpd
 func (client Client) CreateOrUpdateResponder(resp *http.Response) (result GenericResource, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK, http.StatusCreated, http.StatusAccepted),
 		autorest.ByUnmarshallingJSON(&result),
 		autorest.ByClosing())
@@ -367,9 +362,8 @@ func (client Client) CreateOrUpdateByIDPreparer(ctx context.Context, resourceID 
 // CreateOrUpdateByIDSender sends the CreateOrUpdateByID request. The method will close the
 // http.Response Body if it receives an error.
 func (client Client) CreateOrUpdateByIDSender(req *http.Request) (future CreateOrUpdateByIDFuture, err error) {
-	sd := autorest.GetSendDecorators(req.Context(), autorest.DoRetryForStatusCodes(client.RetryAttempts, client.RetryDuration, autorest.StatusCodesForRetry...))
 	var resp *http.Response
-	resp, err = autorest.SendWithSender(client, req, sd...)
+	resp, err = client.Send(req, autorest.DoRetryForStatusCodes(client.RetryAttempts, client.RetryDuration, autorest.StatusCodesForRetry...))
 	if err != nil {
 		return
 	}
@@ -382,7 +376,6 @@ func (client Client) CreateOrUpdateByIDSender(req *http.Request) (future CreateO
 func (client Client) CreateOrUpdateByIDResponder(resp *http.Response) (result GenericResource, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK, http.StatusCreated, http.StatusAccepted),
 		autorest.ByUnmarshallingJSON(&result),
 		autorest.ByClosing())
@@ -459,9 +452,8 @@ func (client Client) DeletePreparer(ctx context.Context, resourceGroupName strin
 // DeleteSender sends the Delete request. The method will close the
 // http.Response Body if it receives an error.
 func (client Client) DeleteSender(req *http.Request) (future DeleteFuture, err error) {
-	sd := autorest.GetSendDecorators(req.Context(), azure.DoRetryWithRegistration(client.Client))
 	var resp *http.Response
-	resp, err = autorest.SendWithSender(client, req, sd...)
+	resp, err = client.Send(req, azure.DoRetryWithRegistration(client.Client))
 	if err != nil {
 		return
 	}
@@ -474,7 +466,6 @@ func (client Client) DeleteSender(req *http.Request) (future DeleteFuture, err e
 func (client Client) DeleteResponder(resp *http.Response) (result autorest.Response, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK, http.StatusAccepted, http.StatusNoContent),
 		autorest.ByClosing())
 	result.Response = resp
@@ -534,9 +525,8 @@ func (client Client) DeleteByIDPreparer(ctx context.Context, resourceID string, 
 // DeleteByIDSender sends the DeleteByID request. The method will close the
 // http.Response Body if it receives an error.
 func (client Client) DeleteByIDSender(req *http.Request) (future DeleteByIDFuture, err error) {
-	sd := autorest.GetSendDecorators(req.Context(), autorest.DoRetryForStatusCodes(client.RetryAttempts, client.RetryDuration, autorest.StatusCodesForRetry...))
 	var resp *http.Response
-	resp, err = autorest.SendWithSender(client, req, sd...)
+	resp, err = client.Send(req, autorest.DoRetryForStatusCodes(client.RetryAttempts, client.RetryDuration, autorest.StatusCodesForRetry...))
 	if err != nil {
 		return
 	}
@@ -549,7 +539,6 @@ func (client Client) DeleteByIDSender(req *http.Request) (future DeleteByIDFutur
 func (client Client) DeleteByIDResponder(resp *http.Response) (result autorest.Response, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK, http.StatusAccepted, http.StatusNoContent),
 		autorest.ByClosing())
 	result.Response = resp
@@ -631,8 +620,7 @@ func (client Client) GetPreparer(ctx context.Context, resourceGroupName string, 
 // GetSender sends the Get request. The method will close the
 // http.Response Body if it receives an error.
 func (client Client) GetSender(req *http.Request) (*http.Response, error) {
-	sd := autorest.GetSendDecorators(req.Context(), azure.DoRetryWithRegistration(client.Client))
-	return autorest.SendWithSender(client, req, sd...)
+	return client.Send(req, azure.DoRetryWithRegistration(client.Client))
 }
 
 // GetResponder handles the response to the Get request. The method always
@@ -640,7 +628,6 @@ func (client Client) GetSender(req *http.Request) (*http.Response, error) {
 func (client Client) GetResponder(resp *http.Response) (result GenericResource, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK),
 		autorest.ByUnmarshallingJSON(&result),
 		autorest.ByClosing())
@@ -707,8 +694,7 @@ func (client Client) GetByIDPreparer(ctx context.Context, resourceID string, API
 // GetByIDSender sends the GetByID request. The method will close the
 // http.Response Body if it receives an error.
 func (client Client) GetByIDSender(req *http.Request) (*http.Response, error) {
-	sd := autorest.GetSendDecorators(req.Context(), autorest.DoRetryForStatusCodes(client.RetryAttempts, client.RetryDuration, autorest.StatusCodesForRetry...))
-	return autorest.SendWithSender(client, req, sd...)
+	return client.Send(req, autorest.DoRetryForStatusCodes(client.RetryAttempts, client.RetryDuration, autorest.StatusCodesForRetry...))
 }
 
 // GetByIDResponder handles the response to the GetByID request. The method always
@@ -716,7 +702,6 @@ func (client Client) GetByIDSender(req *http.Request) (*http.Response, error) {
 func (client Client) GetByIDResponder(resp *http.Response) (result GenericResource, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK),
 		autorest.ByUnmarshallingJSON(&result),
 		autorest.ByClosing())
@@ -737,8 +722,8 @@ func (client Client) GetByIDResponder(resp *http.Response) (result GenericResour
 // use $filter=tagName eq 'tag1' and tagValue eq 'Value1'<br><br>You can use some properties together when
 // filtering. The combinations you can use are: substringof and/or resourceType, plan and plan/publisher and
 // plan/name, identity and identity/principalId.
-// expand - the $expand query parameter. You can expand createdTime and changedTime. For example, to expand
-// both properties, use $expand=changedTime,createdTime
+// expand - comma-separated list of additional properties to be included in the response. Valid values include
+// `createdTime`, `changedTime` and `provisioningState`. For example, `$expand=createdTime,changedTime`.
 // top - the number of results to return. If null is passed, returns all resource groups.
 func (client Client) List(ctx context.Context, filter string, expand string, top *int32) (result ListResultPage, err error) {
 	if tracing.IsEnabled() {
@@ -768,6 +753,9 @@ func (client Client) List(ctx context.Context, filter string, expand string, top
 	result.lr, err = client.ListResponder(resp)
 	if err != nil {
 		err = autorest.NewErrorWithError(err, "resources.Client", "List", resp, "Failure responding to request")
+	}
+	if result.lr.hasNextLink() && result.lr.IsEmpty() {
+		err = result.NextWithContext(ctx)
 	}
 
 	return
@@ -804,8 +792,7 @@ func (client Client) ListPreparer(ctx context.Context, filter string, expand str
 // ListSender sends the List request. The method will close the
 // http.Response Body if it receives an error.
 func (client Client) ListSender(req *http.Request) (*http.Response, error) {
-	sd := autorest.GetSendDecorators(req.Context(), azure.DoRetryWithRegistration(client.Client))
-	return autorest.SendWithSender(client, req, sd...)
+	return client.Send(req, azure.DoRetryWithRegistration(client.Client))
 }
 
 // ListResponder handles the response to the List request. The method always
@@ -813,7 +800,6 @@ func (client Client) ListSender(req *http.Request) (*http.Response, error) {
 func (client Client) ListResponder(resp *http.Response) (result ListResult, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK),
 		autorest.ByUnmarshallingJSON(&result),
 		autorest.ByClosing())
@@ -872,8 +858,8 @@ func (client Client) ListComplete(ctx context.Context, filter string, expand str
 // use $filter=tagName eq 'tag1' and tagValue eq 'Value1'<br><br>You can use some properties together when
 // filtering. The combinations you can use are: substringof and/or resourceType, plan and plan/publisher and
 // plan/name, identity and identity/principalId.
-// expand - the $expand query parameter. You can expand createdTime and changedTime. For example, to expand
-// both properties, use $expand=changedTime,createdTime
+// expand - comma-separated list of additional properties to be included in the response. Valid values include
+// `createdTime`, `changedTime` and `provisioningState`. For example, `$expand=createdTime,changedTime`.
 // top - the number of results to return. If null is passed, returns all resources.
 func (client Client) ListByResourceGroup(ctx context.Context, resourceGroupName string, filter string, expand string, top *int32) (result ListResultPage, err error) {
 	if tracing.IsEnabled() {
@@ -912,6 +898,9 @@ func (client Client) ListByResourceGroup(ctx context.Context, resourceGroupName 
 	if err != nil {
 		err = autorest.NewErrorWithError(err, "resources.Client", "ListByResourceGroup", resp, "Failure responding to request")
 	}
+	if result.lr.hasNextLink() && result.lr.IsEmpty() {
+		err = result.NextWithContext(ctx)
+	}
 
 	return
 }
@@ -948,8 +937,7 @@ func (client Client) ListByResourceGroupPreparer(ctx context.Context, resourceGr
 // ListByResourceGroupSender sends the ListByResourceGroup request. The method will close the
 // http.Response Body if it receives an error.
 func (client Client) ListByResourceGroupSender(req *http.Request) (*http.Response, error) {
-	sd := autorest.GetSendDecorators(req.Context(), azure.DoRetryWithRegistration(client.Client))
-	return autorest.SendWithSender(client, req, sd...)
+	return client.Send(req, azure.DoRetryWithRegistration(client.Client))
 }
 
 // ListByResourceGroupResponder handles the response to the ListByResourceGroup request. The method always
@@ -957,7 +945,6 @@ func (client Client) ListByResourceGroupSender(req *http.Request) (*http.Respons
 func (client Client) ListByResourceGroupResponder(resp *http.Response) (result ListResult, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK),
 		autorest.ByUnmarshallingJSON(&result),
 		autorest.ByClosing())
@@ -1067,9 +1054,8 @@ func (client Client) MoveResourcesPreparer(ctx context.Context, sourceResourceGr
 // MoveResourcesSender sends the MoveResources request. The method will close the
 // http.Response Body if it receives an error.
 func (client Client) MoveResourcesSender(req *http.Request) (future MoveResourcesFuture, err error) {
-	sd := autorest.GetSendDecorators(req.Context(), azure.DoRetryWithRegistration(client.Client))
 	var resp *http.Response
-	resp, err = autorest.SendWithSender(client, req, sd...)
+	resp, err = client.Send(req, azure.DoRetryWithRegistration(client.Client))
 	if err != nil {
 		return
 	}
@@ -1082,7 +1068,6 @@ func (client Client) MoveResourcesSender(req *http.Request) (future MoveResource
 func (client Client) MoveResourcesResponder(resp *http.Response) (result autorest.Response, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK, http.StatusAccepted, http.StatusNoContent),
 		autorest.ByClosing())
 	result.Response = resp
@@ -1160,9 +1145,8 @@ func (client Client) UpdatePreparer(ctx context.Context, resourceGroupName strin
 // UpdateSender sends the Update request. The method will close the
 // http.Response Body if it receives an error.
 func (client Client) UpdateSender(req *http.Request) (future UpdateFuture, err error) {
-	sd := autorest.GetSendDecorators(req.Context(), azure.DoRetryWithRegistration(client.Client))
 	var resp *http.Response
-	resp, err = autorest.SendWithSender(client, req, sd...)
+	resp, err = client.Send(req, azure.DoRetryWithRegistration(client.Client))
 	if err != nil {
 		return
 	}
@@ -1175,7 +1159,6 @@ func (client Client) UpdateSender(req *http.Request) (future UpdateFuture, err e
 func (client Client) UpdateResponder(resp *http.Response) (result GenericResource, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK, http.StatusAccepted),
 		autorest.ByUnmarshallingJSON(&result),
 		autorest.ByClosing())
@@ -1239,9 +1222,8 @@ func (client Client) UpdateByIDPreparer(ctx context.Context, resourceID string, 
 // UpdateByIDSender sends the UpdateByID request. The method will close the
 // http.Response Body if it receives an error.
 func (client Client) UpdateByIDSender(req *http.Request) (future UpdateByIDFuture, err error) {
-	sd := autorest.GetSendDecorators(req.Context(), autorest.DoRetryForStatusCodes(client.RetryAttempts, client.RetryDuration, autorest.StatusCodesForRetry...))
 	var resp *http.Response
-	resp, err = autorest.SendWithSender(client, req, sd...)
+	resp, err = client.Send(req, autorest.DoRetryForStatusCodes(client.RetryAttempts, client.RetryDuration, autorest.StatusCodesForRetry...))
 	if err != nil {
 		return
 	}
@@ -1254,7 +1236,6 @@ func (client Client) UpdateByIDSender(req *http.Request) (future UpdateByIDFutur
 func (client Client) UpdateByIDResponder(resp *http.Response) (result GenericResource, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK, http.StatusAccepted),
 		autorest.ByUnmarshallingJSON(&result),
 		autorest.ByClosing())
@@ -1329,9 +1310,8 @@ func (client Client) ValidateMoveResourcesPreparer(ctx context.Context, sourceRe
 // ValidateMoveResourcesSender sends the ValidateMoveResources request. The method will close the
 // http.Response Body if it receives an error.
 func (client Client) ValidateMoveResourcesSender(req *http.Request) (future ValidateMoveResourcesFuture, err error) {
-	sd := autorest.GetSendDecorators(req.Context(), azure.DoRetryWithRegistration(client.Client))
 	var resp *http.Response
-	resp, err = autorest.SendWithSender(client, req, sd...)
+	resp, err = client.Send(req, azure.DoRetryWithRegistration(client.Client))
 	if err != nil {
 		return
 	}
@@ -1344,7 +1324,6 @@ func (client Client) ValidateMoveResourcesSender(req *http.Request) (future Vali
 func (client Client) ValidateMoveResourcesResponder(resp *http.Response) (result autorest.Response, err error) {
 	err = autorest.Respond(
 		resp,
-		client.ByInspecting(),
 		azure.WithErrorUnlessStatusCode(http.StatusOK, http.StatusAccepted, http.StatusNoContent, http.StatusConflict),
 		autorest.ByClosing())
 	result.Response = resp
