@@ -171,10 +171,12 @@ func filterByResourceGroupAndState(machines []compute.VirtualMachine, resourceGr
 			logger.WithError(err).Warningf("Failed to parse resource ID")
 			continue
 		}
+		logger.Infof("Parsed resource: %#v", resource)
 		if resource.ResourceGroup != resourceGroup {
 			continue
 		}
 		state := azureMachinePowerState(vm)
+		logger.Infof("Machine power state: %s", state)
 		if !states.Has(state) {
 			continue
 		}
