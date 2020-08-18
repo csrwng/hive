@@ -172,7 +172,7 @@ func filterByResourceGroupAndState(machines []compute.VirtualMachine, resourceGr
 			continue
 		}
 		logger.Infof("Parsed resource: %#v", resource)
-		if resource.ResourceGroup != resourceGroup {
+		if strings.ToUpper(resource.ResourceGroup) != strings.ToUpper(resourceGroup) {
 			continue
 		}
 		state := azureMachinePowerState(vm)
