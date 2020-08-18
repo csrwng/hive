@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2018-10-01/compute"
+	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2020-06-01/compute"
 	"github.com/golang/mock/gomock"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -22,6 +22,7 @@ import (
 )
 
 const (
+	azureTestSubscription  = "1111-111-1111-111111"
 	azureTestInfraID       = "test-infra-id"
 	azureTestResourceGroup = "test-infra-id-rg"
 )
@@ -203,18 +204,20 @@ func setupAzureClientInstances(client *mockazureclient.MockClient, instances map
 	for state, count := range instances {
 		for i := 0; i < count; i++ {
 			name := fmt.Sprintf("%s-%d", state, i)
-			vms = append(vms, compute.VirtualMachine{
-				Name: pointer.StringPtr(name),
-			})
 			instanceViewStatus := []compute.InstanceViewStatus{
 				{
 					Code: pointer.StringPtr("PowerState/" + state),
 				},
 			}
-			instanceView := compute.VirtualMachineInstanceView{
-				Statuses: &instanceViewStatus,
-			}
-			client.EXPECT().VirtualMachineInstanceView(gomock.Any(), azureTestResourceGroup, name).Times(1).Return(instanceView, nil)
+			vms = append(vms, compute.VirtualMachine{
+				Name: pointer.StringPtr(name),
+				ID:   pointer.StringPtr(fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/virtualMachines/%s", azureTestSubscription, azureTestResourceGroup, name)),
+				VirtualMachineProperties: &compute.VirtualMachineProperties{
+					InstanceView: &compute.VirtualMachineInstanceView{
+						Statuses: &instanceViewStatus,
+					},
+				},
+			})
 		}
 	}
 	result := compute.NewVirtualMachineListResultPage(func(ctx context.Context, result compute.VirtualMachineListResult) (compute.VirtualMachineListResult, error) {
@@ -224,7 +227,7 @@ func setupAzureClientInstances(client *mockazureclient.MockClient, instances map
 		return compute.VirtualMachineListResult{}, nil
 	})
 	result.Next()
-	client.EXPECT().ListVirtualMachines(gomock.Any(), azureTestResourceGroup).Times(1).Return(result, nil)
+	client.EXPECT().ListAllVirtualMachines(gomock.Any(), "true").Times(1).Return(result, nil)
 }
 
 func setupAzureDeallocateCalls(client *mockazureclient.MockClient, instances map[string]int) {

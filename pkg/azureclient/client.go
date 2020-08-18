@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"io/ioutil"
 
-	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2018-10-01/compute"
+	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2020-06-01/compute"
 	"github.com/Azure/azure-sdk-for-go/services/dns/mgmt/2018-05-01/dns"
 	"github.com/Azure/go-autorest/autorest/azure"
 	"github.com/Azure/go-autorest/autorest/azure/auth"
@@ -20,7 +20,7 @@ import (
 
 // Client is a wrapper object for actual Azure libraries to allow for easier mocking/testing.
 type Client interface {
-	ListResourceSKUs(ctx context.Context) (ResourceSKUsPage, error)
+	ListResourceSKUs(ctx context.Context, filter string) (ResourceSKUsPage, error)
 
 	// Zones
 	CreateOrUpdateZone(ctx context.Context, resourceGroupName string, zone string) (dns.Zone, error)
@@ -33,6 +33,7 @@ type Client interface {
 	DeleteRecordSet(ctx context.Context, resourceGroupName string, zone string, recordSetName string, recordType dns.RecordType) error
 
 	// Virtual Machines
+	ListAllVirtualMachines(ctx context.Context, statusOnly string) (compute.VirtualMachineListResultPage, error)
 	ListVirtualMachines(ctx context.Context, resourceGroupName string) (compute.VirtualMachineListResultPage, error)
 	VirtualMachineInstanceView(ctx context.Context, resourceGroupName string, machineName string) (compute.VirtualMachineInstanceView, error)
 	DeallocateVirtualMachine(ctx context.Context, resourceGroup, name string) (compute.VirtualMachinesDeallocateFuture, error)
@@ -60,8 +61,8 @@ type azureClient struct {
 	virtualMachinesClient *compute.VirtualMachinesClient
 }
 
-func (c *azureClient) ListResourceSKUs(ctx context.Context) (ResourceSKUsPage, error) {
-	page, err := c.resourceSKUsClient.List(ctx)
+func (c *azureClient) ListResourceSKUs(ctx context.Context, filter string) (ResourceSKUsPage, error) {
+	page, err := c.resourceSKUsClient.List(ctx, filter)
 	return &page, err
 }
 
@@ -99,6 +100,10 @@ func (c *azureClient) GetZone(ctx context.Context, resourceGroupName string, zon
 
 func (c *azureClient) CreateOrUpdateRecordSet(ctx context.Context, resourceGroupName string, zone string, recordSetName string, recordType dns.RecordType, recordSet dns.RecordSet) (dns.RecordSet, error) {
 	return c.recordSetsClient.CreateOrUpdate(ctx, resourceGroupName, zone, recordSetName, recordType, recordSet, "", "")
+}
+
+func (c *azureClient) ListAllVirtualMachines(ctx context.Context, statusOnly string) (compute.VirtualMachineListResultPage, error) {
+	return c.virtualMachinesClient.ListAll(ctx, statusOnly)
 }
 
 func (c *azureClient) ListVirtualMachines(ctx context.Context, resourceGroupName string) (compute.VirtualMachineListResultPage, error) {

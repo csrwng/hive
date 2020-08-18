@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 
-	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2018-10-01/compute"
+	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2020-06-01/compute"
+	"github.com/Azure/go-autorest/autorest/azure"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
@@ -21,9 +21,8 @@ import (
 )
 
 const (
-	azureConcurrentVMInstanceCalls = 5
-	azurePowerStatePrefix          = "PowerState/"
-	azureUnknownPowerState         = "unknown"
+	azurePowerStatePrefix  = "PowerState/"
+	azureUnknownPowerState = "unknown"
 )
 
 var (
@@ -147,131 +146,48 @@ type azureMachineLister struct {
 }
 
 func listAzureMachines(cd *hivev1.ClusterDeployment, azureClient azureclient.Client, states sets.String, logger log.FieldLogger) ([]compute.VirtualMachine, error) {
-	rg := clusterDeploymentResourceGroup(cd)
-	lister := &azureMachineLister{
-		client:        azureClient,
-		resourceGroup: rg,
-		states:        states,
-		done:          make(chan struct{}),
-		err:           make(chan error, 1),
-		logger:        logger.WithField("resourceGroup", rg),
-	}
-	return lister.listByState()
-}
-
-func (l *azureMachineLister) listByState() ([]compute.VirtualMachine, error) {
-	defer close(l.done)
-	allVMs := l.listAll()
-	filtered := make([]<-chan compute.VirtualMachine, azureConcurrentVMInstanceCalls)
-	for i := 0; i < azureConcurrentVMInstanceCalls; i++ {
-		filtered[i] = l.filterByState(allVMs)
-	}
-	merged := l.merge(filtered)
-	filteredVMs := l.collect(merged)
-	select {
-	case err := <-l.err:
+	page, err := azureClient.ListAllVirtualMachines(context.TODO(), "true")
+	if err != nil {
 		return nil, err
-	case result := <-filteredVMs:
-		return result, nil
 	}
+	result := []compute.VirtualMachine{}
+	for page.NotDone() {
+		result = append(result, filterByResourceGroupAndState(page.Values(), clusterDeploymentResourceGroup(cd), states, logger)...)
+		if err = page.Next(); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
 }
 
-func (l *azureMachineLister) listAll() <-chan compute.VirtualMachine {
-	vmCh := make(chan compute.VirtualMachine)
-	go func() {
-		defer close(vmCh)
-		l.logger.Debug("Listing all virtual machines in resource group")
-		page, err := l.client.ListVirtualMachines(context.TODO(), l.resourceGroup)
+func filterByResourceGroupAndState(machines []compute.VirtualMachine, resourceGroup string, states sets.String, logger log.FieldLogger) []compute.VirtualMachine {
+	result := []compute.VirtualMachine{}
+	for _, vm := range machines {
+		if vm.ID == nil {
+			continue
+		}
+		resource, err := azure.ParseResourceID(*vm.ID)
 		if err != nil {
-			l.logger.WithError(err).Error("Failed to list virtual machines")
-			l.err <- errors.Wrap(err, "failed to list virtual machines")
-			return
+			logger.WithError(err).Warningf("Failed to parse resource ID")
+			continue
 		}
-		iterator := compute.NewVirtualMachineListResultIterator(page)
-		for iterator.NotDone() {
-			select {
-			case vmCh <- iterator.Value():
-			case <-l.done:
-				return
-			}
-			if err = iterator.NextWithContext(context.TODO()); err != nil {
-				l.logger.WithError(err).Error("Failed to list next page of virtual machines")
-				l.err <- errors.Wrap(err, "failed to list next page of virtual machines")
-				return
-			}
+		if resource.ResourceGroup != resourceGroup {
+			continue
 		}
-	}()
-	return vmCh
-}
-
-func (l *azureMachineLister) filterByState(allVMs <-chan compute.VirtualMachine) <-chan compute.VirtualMachine {
-	filtered := make(chan compute.VirtualMachine)
-	go func() {
-		defer close(filtered)
-		for vm := range allVMs {
-			if vm.Name == nil {
-				l.logger.Warning("Got virtual machine with nil name")
-				continue
-			}
-			instanceView, err := l.client.VirtualMachineInstanceView(context.TODO(), l.resourceGroup, *vm.Name)
-			if err != nil {
-				l.err <- err
-				return
-			}
-			state := azureMachinePowerState(instanceView)
-			if l.states.Has(state) {
-				select {
-				case filtered <- vm:
-				case <-l.done:
-					return
-				}
-			}
+		state := azureMachinePowerState(vm)
+		if !states.Has(state) {
+			continue
 		}
-	}()
-	return filtered
-}
-
-func (l *azureMachineLister) collect(merged <-chan compute.VirtualMachine) <-chan []compute.VirtualMachine {
-	result := make(chan []compute.VirtualMachine)
-	go func() {
-		vms := []compute.VirtualMachine{}
-		for vm := range merged {
-			vms = append(vms, vm)
-		}
-		result <- vms
-	}()
+		result = append(result, vm)
+	}
 	return result
 }
 
-func (l *azureMachineLister) merge(sources []<-chan compute.VirtualMachine) <-chan compute.VirtualMachine {
-	wg := sync.WaitGroup{}
-	out := make(chan compute.VirtualMachine)
-	wg.Add(len(sources))
-	for _, s := range sources {
-		sourceChan := s
-		go func() {
-			defer wg.Done()
-			for vm := range sourceChan {
-				select {
-				case out <- vm:
-				case <-l.done:
-					return
-				}
-			}
-		}()
-	}
-	go func() {
-		wg.Wait()
-		close(out)
-	}()
-	return out
-}
-
-func azureMachinePowerState(instanceView compute.VirtualMachineInstanceView) string {
-	if instanceView.Statuses == nil {
+func azureMachinePowerState(vm compute.VirtualMachine) string {
+	if vm.InstanceView == nil || vm.InstanceView.Statuses == nil {
 		return azureUnknownPowerState
 	}
-	for _, s := range *instanceView.Statuses {
+	for _, s := range *vm.InstanceView.Statuses {
 		if s.Code != nil && strings.HasPrefix(*s.Code, azurePowerStatePrefix) {
 			return strings.TrimPrefix(*s.Code, azurePowerStatePrefix)
 		}

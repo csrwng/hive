@@ -6,7 +6,7 @@ package mock
 
 import (
 	context "context"
-	compute "github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2018-10-01/compute"
+	compute "github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2020-06-01/compute"
 	dns "github.com/Azure/azure-sdk-for-go/services/dns/mgmt/2018-05-01/dns"
 	gomock "github.com/golang/mock/gomock"
 	azureclient "github.com/openshift/hive/pkg/azureclient"
@@ -37,18 +37,18 @@ func (m *MockClient) EXPECT() *MockClientMockRecorder {
 }
 
 // ListResourceSKUs mocks base method
-func (m *MockClient) ListResourceSKUs(ctx context.Context) (azureclient.ResourceSKUsPage, error) {
+func (m *MockClient) ListResourceSKUs(ctx context.Context, filter string) (azureclient.ResourceSKUsPage, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListResourceSKUs", ctx)
+	ret := m.ctrl.Call(m, "ListResourceSKUs", ctx, filter)
 	ret0, _ := ret[0].(azureclient.ResourceSKUsPage)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListResourceSKUs indicates an expected call of ListResourceSKUs
-func (mr *MockClientMockRecorder) ListResourceSKUs(ctx interface{}) *gomock.Call {
+func (mr *MockClientMockRecorder) ListResourceSKUs(ctx, filter interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListResourceSKUs", reflect.TypeOf((*MockClient)(nil).ListResourceSKUs), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListResourceSKUs", reflect.TypeOf((*MockClient)(nil).ListResourceSKUs), ctx, filter)
 }
 
 // CreateOrUpdateZone mocks base method
@@ -137,6 +137,21 @@ func (m *MockClient) DeleteRecordSet(ctx context.Context, resourceGroupName, zon
 func (mr *MockClientMockRecorder) DeleteRecordSet(ctx, resourceGroupName, zone, recordSetName, recordType interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRecordSet", reflect.TypeOf((*MockClient)(nil).DeleteRecordSet), ctx, resourceGroupName, zone, recordSetName, recordType)
+}
+
+// ListAllVirtualMachines mocks base method
+func (m *MockClient) ListAllVirtualMachines(ctx context.Context, statusOnly string) (compute.VirtualMachineListResultPage, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListAllVirtualMachines", ctx, statusOnly)
+	ret0, _ := ret[0].(compute.VirtualMachineListResultPage)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListAllVirtualMachines indicates an expected call of ListAllVirtualMachines
+func (mr *MockClientMockRecorder) ListAllVirtualMachines(ctx, statusOnly interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAllVirtualMachines", reflect.TypeOf((*MockClient)(nil).ListAllVirtualMachines), ctx, statusOnly)
 }
 
 // ListVirtualMachines mocks base method
