@@ -337,7 +337,7 @@ func (r *hibernationReconciler) nodesReady(cd *hivev1.ClusterDeployment, remoteC
 		return false, nil
 	}
 	for i := range nodeList.Items {
-		if !isNodeReady(&nodeList.Items[i], startedResuming) {
+		if !isNodeReady(&nodeList.Items[i], startedResuming, logger) {
 			logger.WithField("node", nodeList.Items[i].Name).Info("Node is not yet ready, waiting")
 			return false, nil
 		}
@@ -393,7 +393,7 @@ func (r *hibernationReconciler) checkCSRs(cd *hivev1.ClusterDeployment, remoteCl
 	return reconcile.Result{RequeueAfter: csrCheckInterval}, nil
 }
 
-func isNodeReady(node *corev1.Node, startedResuming time.Time) bool {
+func isNodeReady(node *corev1.Node, startedResuming time.Time, logger log.FieldLogger) bool {
 	for _, c := range node.Status.Conditions {
 		if c.Type == corev1.NodeReady {
 			lastHeartBeat := c.LastHeartbeatTime.Time
@@ -401,14 +401,14 @@ func isNodeReady(node *corev1.Node, startedResuming time.Time) bool {
 			// is positive, then it means that the node posted a heartbeat since the cluster started resuming. This assumes
 			// that the time in both the Hive cluster and the node is the same within a skew allowance amount.
 			if sinceStartedResuming := lastHeartBeat.Sub(startedResuming); sinceStartedResuming < lastHeartBeatSkewAllowance {
-				log.WithFields(log.Fields{
+				logger.WithFields(log.Fields{
 					"node":                 node.Name,
 					"startedResuming":      startedResuming,
 					"lastHeartBeat":        lastHeartBeat,
 					"sinceStartedResuming": sinceStartedResuming}).Info("Node last heartbeat is not recent enough")
 				return false
 			} else {
-				log.WithFields(log.Fields{
+				logger.WithFields(log.Fields{
 					"node":                 node.Name,
 					"startedResuming":      startedResuming,
 					"lastHeartBeat":        lastHeartBeat,
