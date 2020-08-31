@@ -405,14 +405,15 @@ func isNodeReady(node *corev1.Node, startedResuming time.Time) bool {
 					"node":                 node.Name,
 					"startedResuming":      startedResuming,
 					"lastHeartBeat":        lastHeartBeat,
-					"sinceStartedResuming": sinceStartedResuming}).Debug("Node last heartbeat is not recent enough")
+					"sinceStartedResuming": sinceStartedResuming}).Info("Node last heartbeat is not recent enough")
 				return false
 			} else {
 				log.WithFields(log.Fields{
 					"node":                 node.Name,
 					"startedResuming":      startedResuming,
 					"lastHeartBeat":        lastHeartBeat,
-					"sinceStartedResuming": sinceStartedResuming}).Debug("Node last heartbeat is recent enough")
+					"sinceStartedResuming": sinceStartedResuming}).Info("Node last heartbeat is recent enough")
+				return true
 			}
 		}
 	}
