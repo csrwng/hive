@@ -44,6 +44,10 @@ const (
 	// avoid a false positive when the node status is checked too
 	// soon after the cluster is ready
 	nodeCheckWaitTime = 2 * time.Minute
+
+	// lastHeartBeatSkewAllowance is the amount of time allowed for
+	// clock skew between a resumed cluster node and the Hive cluster
+	lastHeartBeatSkewAllowance = -2 * time.Minute
 )
 
 var (
@@ -320,9 +324,7 @@ func (r *hibernationReconciler) nodesReady(cd *hivev1.ClusterDeployment, remoteC
 	if hibernatingCondition == nil {
 		return false, errors.New("cannot find hibernating condition")
 	}
-	if time.Since(hibernatingCondition.LastProbeTime.Time) < nodeCheckWaitTime {
-		return false, nil
-	}
+	startedResuming := hibernatingCondition.LastProbeTime.Time
 	nodeList := &corev1.NodeList{}
 	err := remoteClient.List(context.TODO(), nodeList)
 	if err != nil {
@@ -335,7 +337,7 @@ func (r *hibernationReconciler) nodesReady(cd *hivev1.ClusterDeployment, remoteC
 		return false, nil
 	}
 	for i := range nodeList.Items {
-		if !isNodeReady(&nodeList.Items[i]) {
+		if !isNodeReady(&nodeList.Items[i], startedResuming) {
 			logger.WithField("node", nodeList.Items[i].Name).Info("Node is not yet ready, waiting")
 			return false, nil
 		}
@@ -391,9 +393,21 @@ func (r *hibernationReconciler) checkCSRs(cd *hivev1.ClusterDeployment, remoteCl
 	return reconcile.Result{RequeueAfter: csrCheckInterval}, nil
 }
 
-func isNodeReady(node *corev1.Node) bool {
+func isNodeReady(node *corev1.Node, startedResuming time.Time) bool {
 	for _, c := range node.Status.Conditions {
 		if c.Type == corev1.NodeReady {
+			lastHeartBeat := c.LastHeartbeatTime.Time
+			// If the difference between the time the cluster started resuming and the lastHeartBeat timestamp on the node
+			// is positive, then it means that the node posted a heartbeat since the cluster started resuming. This assumes
+			// that the time in both the Hive cluster and the node is the same within a skew allowance amount.
+			if sinceStartedResuming := lastHeartBeat.Sub(startedResuming); sinceStartedResuming < lastHeartBeatSkewAllowance {
+				log.WithFields(log.Fields{
+					"node":                 node.Name,
+					"startedResuming":      startedResuming,
+					"lastHeartBeat":        lastHeartBeat,
+					"sinceStartedResuming": sinceStartedResuming}).Debug("Node last heartbeat is not recent enough")
+				return false
+			}
 			return c.Status == corev1.ConditionTrue
 		}
 	}
